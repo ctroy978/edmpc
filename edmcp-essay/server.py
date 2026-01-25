@@ -27,8 +27,6 @@ from openai import (
     RateLimitError,
     InternalServerError,
 )
-from dotenv import load_dotenv, find_dotenv
-
 # Import from edmcp_core (shared library)
 from edmcp_core import (
     DatabaseManager,
@@ -37,6 +35,7 @@ from edmcp_core import (
     extract_json_from_text,
     get_openai_client,
     write_jsonl,
+    load_edmcp_config,
 )
 
 # Import from edmcp_essay (essay-specific modules)
@@ -62,8 +61,8 @@ AI_RETRIABLE_EXCEPTIONS = (
     InternalServerError,
 )
 
-# Load environment variables from .env file
-load_dotenv(find_dotenv())
+# Load environment variables from central .env file
+load_edmcp_config()
 
 # Constants
 NAME_HEADER_PATTERN = regex.compile(
