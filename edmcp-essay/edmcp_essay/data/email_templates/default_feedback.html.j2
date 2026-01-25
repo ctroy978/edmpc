@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background-color: #f4f4f4;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .grade {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .content {
+            margin: 20px 0;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>Assignment Feedback Report</h2>
+        <p><strong>Student:</strong> {{ student_name }}</p>
+        <p><strong>Assignment:</strong> {{ assignment_name }}</p>
+        <p class="grade">Overall Grade: {{ grade }}</p>
+    </div>
+
+    <div class="content">
+        <p>{{ student_name }},</p>
+
+        <p>Hello from the AI Krew. Your graded assignment is attached to this email. Please review the detailed feedback in the PDF document.</p>
+
+        <p>The report includes:</p>
+        <ul>
+            <li>Overall score and summary</li>
+            <li>Detailed criteria breakdown with examples from your work</li>
+            <li>Specific advice for improvement</li>
+            <li>Your complete submitted text</li>
+        </ul>
+
+        <p>If you have any questions about the feedback, please don't hesitate to reach out during office hours or via email.</p>
+
+        <p>Keep up the great work!</p>
+    </div>
+
+    <div class="footer">
+        <p>This is an automated message from {{ from_name }}. Please do not reply directly to this email.</p>
+    </div>
+</body>
+</html>
