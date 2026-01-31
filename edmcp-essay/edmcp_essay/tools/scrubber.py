@@ -7,7 +7,7 @@ from edmcp_essay.core.name_loader import NameLoader
 
 class Scrubber:
     """
-    Scrubs PII (names) from the first 20 lines of text.
+    Scrubs PII (names) from the entire document.
     """
 
     def __init__(self, names: Set[str], replacement: str = "[STUDENT_NAME]"):
@@ -23,53 +23,17 @@ class Scrubber:
         else:
             self.regex = None
 
-    def scrub_text(self, text: str, line_limit: int = 20, header_lines: int = 3) -> str:
+    def scrub_text(self, text: str) -> str:
         """
-        Scrubs names from the first line_limit non-empty text lines of the first page,
-        and from the first header_lines non-empty text lines of subsequent pages (for MLA/APA headers).
+        Scrubs names from the entire document.
 
         Args:
-            text: Text to scrub (may contain form feed \\f page separators)
-            line_limit: Number of non-empty text lines to scrub from first page (default: 20)
-            header_lines: Number of non-empty text lines to scrub from subsequent pages (default: 3)
+            text: Text to scrub
         """
         if not self.regex or not text:
             return text
 
-        # Split by form feed to get individual pages
-        pages = text.split("\f")
-        scrubbed_pages = []
-
-        for page_num, page in enumerate(pages):
-            lines = page.splitlines()
-            scrubbed_lines = []
-
-            # Determine how many non-empty lines to scrub on this page
-            scrub_count = line_limit if page_num == 0 else header_lines
-            non_empty_count = 0
-
-            for line in lines:
-                # Check if line has actual content (not just whitespace)
-                if line.strip():
-                    non_empty_count += 1
-                    # Scrub if we're within the non-empty line limit
-                    if non_empty_count <= scrub_count:
-                        scrubbed_lines.append(self.regex.sub(self.replacement, line))
-                    else:
-                        scrubbed_lines.append(line)
-                else:
-                    # Preserve blank lines as-is
-                    scrubbed_lines.append(line)
-
-            scrubbed_pages.append("\n".join(scrubbed_lines))
-
-        # Rejoin pages with form feed
-        result = "\f".join(scrubbed_pages)
-
-        # Handle trailing newline if original text had one
-        if text.endswith("\n") and not result.endswith("\n"):
-            result += "\n"
-        return result
+        return self.regex.sub(self.replacement, text)
 
 
 class ScrubberTool:
@@ -93,6 +57,20 @@ class ScrubberTool:
         names = loader.load_all_names()
         self.scrubber = Scrubber(names)
 
+    def _get_name_parts(self, full_name: str) -> Set[str]:
+        """Extract individual name parts from a full name for scrubbing."""
+        if not full_name:
+            return set()
+
+        parts = set()
+        # Split on whitespace and common separators
+        for part in full_name.replace("-", " ").replace("_", " ").split():
+            normalized = part.strip().lower()
+            # Only include parts that are at least 2 characters (avoid scrubbing single letters)
+            if len(normalized) >= 2:
+                parts.add(normalized)
+        return parts
+
     def scrub_job(self, input_filename: str = "ocr_results.jsonl", output_filename: str = "scrubbed_results.jsonl") -> Path:
         """
         Reads OCR results (from DB or JSONL), scrubs them, and writes to a new JSONL file + DB.
@@ -113,7 +91,17 @@ class ScrubberTool:
 
             for essay in essays:
                 raw_text = essay.get("raw_text", "")
+                detected_name = essay.get("student_name", "")
+
+                # First scrub with roster names
                 scrubbed_text = self.scrubber.scrub_text(raw_text)
+
+                # Also scrub the detected name and its parts (handles nicknames/preferred names)
+                detected_name_parts = self._get_name_parts(detected_name)
+                if detected_name_parts:
+                    # Create a temporary scrubber for the detected name parts
+                    detected_scrubber = Scrubber(detected_name_parts)
+                    scrubbed_text = detected_scrubber.scrub_text(scrubbed_text)
 
                 # Update DB
                 self.db_manager.update_essay_scrubbed(essay["id"], scrubbed_text)
@@ -135,7 +123,17 @@ class ScrubberTool:
             records = list(read_jsonl(input_path))
             for record in records:
                 if "text" in record:
-                    record["text"] = self.scrubber.scrub_text(record["text"])
+                    # First scrub with roster names
+                    scrubbed_text = self.scrubber.scrub_text(record["text"])
+
+                    # Also scrub detected name if present
+                    detected_name = record.get("student_name", "")
+                    detected_name_parts = self._get_name_parts(detected_name)
+                    if detected_name_parts:
+                        detected_scrubber = Scrubber(detected_name_parts)
+                        scrubbed_text = detected_scrubber.scrub_text(scrubbed_text)
+
+                    record["text"] = scrubbed_text
                 scrubbed_records.append(record)
 
         # Write to JSONL
