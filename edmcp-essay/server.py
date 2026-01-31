@@ -660,6 +660,73 @@ def get_job_statistics(job_id: str) -> dict:
 
 
 @mcp.tool
+def add_custom_scrub_words(job_id: str, words: List[str]) -> dict:
+    """
+    Add custom words/names to scrub for a job.
+    These will be scrubbed in addition to roster names and detected names.
+
+    Args:
+        job_id: The job ID
+        words: List of words to scrub (e.g., ["Kaitlyn", "Mr. Cooper"])
+
+    Returns:
+        Confirmation with word count
+    """
+    try:
+        # Validate job exists
+        job = DB_MANAGER.get_job(job_id)
+        if not job:
+            return {"status": "error", "message": f"Job not found: {job_id}"}
+
+        # Filter empty strings and normalize
+        cleaned_words = [w.strip() for w in words if w and w.strip()]
+
+        # Store in database
+        DB_MANAGER.set_custom_scrub_words(job_id, cleaned_words)
+
+        return {
+            "status": "success",
+            "job_id": job_id,
+            "words_saved": len(cleaned_words),
+            "words": cleaned_words,
+            "message": f"Saved {len(cleaned_words)} custom scrub word(s) for job {job_id}",
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool
+def get_custom_scrub_words(job_id: str) -> dict:
+    """
+    Retrieve custom scrub words for a job.
+
+    Args:
+        job_id: The job ID
+
+    Returns:
+        List of custom scrub words
+    """
+    try:
+        # Validate job exists
+        job = DB_MANAGER.get_job(job_id)
+        if not job:
+            return {"status": "error", "message": f"Job not found: {job_id}"}
+
+        words = DB_MANAGER.get_custom_scrub_words(job_id)
+
+        return {
+            "status": "success",
+            "job_id": job_id,
+            "word_count": len(words),
+            "words": words,
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool
 def scrub_processed_job(job_id: str) -> dict:
     """
     Scrubs PII from all essays in a processed job.
@@ -674,8 +741,12 @@ def scrub_processed_job(job_id: str) -> dict:
 
     try:
         job_dir = JOB_MANAGER.get_job_directory(job_id)
+
+        # Load custom scrub words from database
+        custom_words = DB_MANAGER.get_custom_scrub_words(job_id)
+
         scrubber_tool = ScrubberTool(job_dir=job_dir, names_dir=NAMES_DIR, db_manager=DB_MANAGER)
-        output_path = scrubber_tool.scrub_job()
+        output_path = scrubber_tool.scrub_job(custom_words=custom_words)
 
         essays = DB_MANAGER.get_job_essays(job_id)
         scrubbed_count = len([e for e in essays if e["status"] == "SCRUBBED"])
@@ -687,6 +758,7 @@ def scrub_processed_job(job_id: str) -> dict:
             "job_id": job_id,
             "scrubbed_count": scrubbed_count,
             "total_essays": len(essays),
+            "custom_words_applied": len(custom_words),
             "output_file": str(output_path),
         }
 

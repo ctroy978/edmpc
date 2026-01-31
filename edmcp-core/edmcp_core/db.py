@@ -98,6 +98,8 @@ class DatabaseManager:
             cursor.execute("ALTER TABLE jobs ADD COLUMN student_count INTEGER")
         if "knowledge_base_topic" not in jobs_columns:
             cursor.execute("ALTER TABLE jobs ADD COLUMN knowledge_base_topic TEXT")
+        if "custom_scrub_words" not in jobs_columns:
+            cursor.execute("ALTER TABLE jobs ADD COLUMN custom_scrub_words TEXT")
 
         self.conn.commit()
 
@@ -488,6 +490,49 @@ class DatabaseManager:
         cursor.execute("DELETE FROM reports WHERE job_id = ?", (job_id,))
         self.conn.commit()
         return cursor.rowcount
+
+    def set_custom_scrub_words(self, job_id: str, words: List[str]) -> bool:
+        """
+        Stores custom scrub words for a job.
+
+        Args:
+            job_id: The job ID
+            words: List of words to scrub
+
+        Returns:
+            True if successful
+        """
+        cursor = self.conn.cursor()
+        words_json = json.dumps(words)
+        cursor.execute(
+            "UPDATE jobs SET custom_scrub_words = ? WHERE id = ?",
+            (words_json, job_id),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def get_custom_scrub_words(self, job_id: str) -> List[str]:
+        """
+        Retrieves custom scrub words for a job.
+
+        Args:
+            job_id: The job ID
+
+        Returns:
+            List of custom words to scrub, or empty list if none
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT custom_scrub_words FROM jobs WHERE id = ?",
+            (job_id,),
+        )
+        row = cursor.fetchone()
+        if row and row["custom_scrub_words"]:
+            try:
+                return json.loads(row["custom_scrub_words"])
+            except json.JSONDecodeError:
+                return []
+        return []
 
     def close(self):
         """Closes the database connection."""

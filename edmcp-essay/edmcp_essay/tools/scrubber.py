@@ -71,19 +71,33 @@ class ScrubberTool:
                 parts.add(normalized)
         return parts
 
-    def scrub_job(self, input_filename: str = "ocr_results.jsonl", output_filename: str = "scrubbed_results.jsonl") -> Path:
+    def scrub_job(
+        self,
+        input_filename: str = "ocr_results.jsonl",
+        output_filename: str = "scrubbed_results.jsonl",
+        custom_words: Optional[List[str]] = None,
+    ) -> Path:
         """
         Reads OCR results (from DB or JSONL), scrubs them, and writes to a new JSONL file + DB.
 
         Args:
             input_filename: Name of the input JSONL file in the job directory (fallback source).
             output_filename: Name of the output JSONL file to create.
+            custom_words: Optional list of additional words to scrub (e.g., nicknames, teacher names).
 
         Returns:
             Path to the scrubbed results file.
         """
         output_path = self.job_dir / output_filename
         scrubbed_records = []
+
+        # Create scrubber for custom words if provided
+        custom_scrubber = None
+        if custom_words:
+            # Normalize custom words (lowercase, strip whitespace)
+            normalized_custom = {w.strip().lower() for w in custom_words if w and w.strip() and len(w.strip()) >= 2}
+            if normalized_custom:
+                custom_scrubber = Scrubber(normalized_custom)
 
         if self.db_manager:
             # 1. Read from DB
@@ -102,6 +116,10 @@ class ScrubberTool:
                     # Create a temporary scrubber for the detected name parts
                     detected_scrubber = Scrubber(detected_name_parts)
                     scrubbed_text = detected_scrubber.scrub_text(scrubbed_text)
+
+                # Apply custom scrubber if present
+                if custom_scrubber:
+                    scrubbed_text = custom_scrubber.scrub_text(scrubbed_text)
 
                 # Update DB
                 self.db_manager.update_essay_scrubbed(essay["id"], scrubbed_text)
@@ -132,6 +150,10 @@ class ScrubberTool:
                     if detected_name_parts:
                         detected_scrubber = Scrubber(detected_name_parts)
                         scrubbed_text = detected_scrubber.scrub_text(scrubbed_text)
+
+                    # Apply custom scrubber if present
+                    if custom_scrubber:
+                        scrubbed_text = custom_scrubber.scrub_text(scrubbed_text)
 
                     record["text"] = scrubbed_text
                 scrubbed_records.append(record)
