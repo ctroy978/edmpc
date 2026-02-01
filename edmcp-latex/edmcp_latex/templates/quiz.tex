@@ -1,0 +1,49 @@
+\documentclass[12pt, letterpaper]{article}
+\usepackage{graphicx}
+
+% --- Manual Margins ---
+\setlength{\textheight}{9.0in}
+\setlength{\textwidth}{6.5in}
+\setlength{\topmargin}{-0.5in}
+\setlength{\oddsidemargin}{0in}
+\setlength{\evensidemargin}{0in}
+
+% --- Spacing ---
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.8em}
+
+\begin{document}
+
+% --- Header with Name/Date ---
+\noindent
+\begin{minipage}[t]{0.5\textwidth}
+\textbf{Name:} \underline{\hspace{2.5in}}
+\end{minipage}%
+\begin{minipage}[t]{0.5\textwidth}
+\raggedleft
+\textbf{Date:} \underline{\hspace{1.5in}}
+\end{minipage}
+
+\vspace{1em}
+
+% --- Title ---
+\begin{center}
+\Large \textbf{{{title}}} \\
+\vspace{0.3em}
+\normalsize \textit{{{author}}}
+\end{center}
+
+\vspace{0.5em}
+\hrule
+\vspace{1em}
+
+% --- Instructions/Content ---
+{{content}}
+
+% --- Footer/Notes ---
+\vfill
+\hrule
+\vspace{0.5em}
+{\footnotesize {{footnotes}}}
+
+\end{document}

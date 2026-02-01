@@ -1,0 +1,57 @@
+\documentclass[12pt, twocolumn, letterpaper]{article}
+\usepackage{graphicx}
+
+% --- Native Formatting ---
+% Switch to Sans-Serif font (Computer Modern Sans)
+\renewcommand{\familydefault}{\sfdefault}
+
+% --- Manual Margins (Since we can't use geometry) ---
+% These settings mimic a 1-inch margin layout
+\setlength{\textheight}{9.0in}
+\setlength{\textwidth}{6.5in}
+\setlength{\topmargin}{-0.5in}
+\setlength{\oddsidemargin}{0in}
+\setlength{\evensidemargin}{0in}
+\setlength{\columnsep}{0.5in} % Gap between columns
+
+% --- Spacing ---
+\setlength{\parindent}{0pt}   % No indentation
+\setlength{\parskip}{1em}     % Space between paragraphs
+
+% --- Title Setup ---
+\title{{{title}}}
+\author{{{author}}}
+\date{}
+
+\begin{document}
+
+% --- Manual Title Layout ---
+% We use the optional argument of \twocolumn to place
+% the title across the full page width before splitting.
+\twocolumn[
+  \begin{@twocolumnfalse}
+    \begin{center}
+      \huge \textbf{{{title}}} \\
+      \vspace{0.5em}
+      \large \textit{{{author}}} \\
+      \vspace{0.5em}
+      \hrule
+      \vspace{1.5em}
+    \end{center}
+  \end{@twocolumnfalse}
+]
+
+% --- Content ---
+% The text will flow into two columns automatically
+{{content}}
+
+% --- Footnotes ---
+\vspace{1em}
+\hrule
+\vspace{1em}
+{\footnotesize
+\textbf{Notes:}
+{{footnotes}}
+}
+
+\end{document}
