@@ -18,38 +18,56 @@ from openai import OpenAI
 # Configure a logger for retries
 logger = logging.getLogger("edmcp_core.utils")
 
-def extract_json_from_text(text: str) -> Optional[dict]:
+def extract_json_from_text(text: str) -> Optional[Any]:
     """
-    Extracts and parses the first JSON object found in a string.
+    Extracts and parses the first JSON object or array found in a string.
     Handles Markdown code fences (```json ... ```) and leading/trailing text.
+    Returns dict for objects, list for arrays, or None if no valid JSON found.
     """
     if not text:
         return None
 
-    # Try to find JSON within Markdown code blocks first
-    code_block_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    # Try to find JSON within Markdown code blocks first (objects or arrays)
+    code_block_match = re.search(r"```(?:json)?\s*([\[{].*?[\]}])\s*```", text, re.DOTALL)
     if code_block_match:
         json_str = code_block_match.group(1).strip()
     else:
-        # Fallback: Find anything that looks like a JSON object using curly braces
-        # This finds the first '{' and the last '}'
-        start_index = text.find('{')
-        end_index = text.rfind('}')
+        # Fallback: Find anything that looks like a JSON object or array
+        # Find the first opening bracket (either { or [)
+        obj_start = text.find('{')
+        arr_start = text.find('[')
 
-        if start_index == -1 or end_index == -1 or end_index <= start_index:
+        # Determine which comes first (ignoring -1 for not found)
+        if obj_start == -1 and arr_start == -1:
+            return None
+
+        if obj_start == -1:
+            start_index = arr_start
+            end_char = ']'
+        elif arr_start == -1:
+            start_index = obj_start
+            end_char = '}'
+        elif arr_start < obj_start:
+            start_index = arr_start
+            end_char = ']'
+        else:
+            start_index = obj_start
+            end_char = '}'
+
+        end_index = text.rfind(end_char)
+
+        if end_index == -1 or end_index <= start_index:
             return None
 
         json_str = text[start_index:end_index + 1].strip()
 
     try:
         # Basic cleanup: remove common LLM-injected artifacts if necessary
-        # (Though json.loads is usually strict, we could add more cleanup here if needed)
         return json.loads(json_str)
     except json.JSONDecodeError:
         # Last ditch effort: try to handle some common trailing comma issues if they occur
         try:
-            # This is a very basic fix for trailing commas in simple objects
-            # For complex nested objects, a real parser like dirtyjson or orjson might be better
+            # This is a very basic fix for trailing commas in simple objects/arrays
             fixed_json = re.sub(r',\s*([\]}])', r'\1', json_str)
             return json.loads(fixed_json)
         except json.JSONDecodeError:
