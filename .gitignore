@@ -22,10 +22,12 @@ ENV/
 *.db
 *.db-journal
 
-# Data directories (symlinked to edmcp-backup)
+# Data directories (server-generated, sensitive, or symlinked)
+data/
 edmcp-essay/data/jobs
 edmcp-essay/data/reports
 edmcp-essay/data/vector_store
+edmcp-latex/data/artifacts/
 
 # IDE
 .idea/

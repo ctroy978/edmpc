@@ -1,12 +1,14 @@
 """LaTeX compilation module for generating PDFs from LaTeX source."""
 
 import base64
-import shutil
 import subprocess
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from edmcp_core import DatabaseManager
 
 
 class CompilationError(Exception):
@@ -20,19 +22,13 @@ class CompilationError(Exception):
 class LatexCompiler:
     """Compiles LaTeX source to PDF using pdflatex."""
 
-    def __init__(self, artifacts_dir: Optional[Path] = None):
-        """Initialize the compiler with an artifacts directory.
+    def __init__(self, db_manager: "DatabaseManager"):
+        """Initialize the compiler with a database manager.
 
         Args:
-            artifacts_dir: Directory to store compiled PDFs. Defaults to
-                          data/artifacts relative to the package.
+            db_manager: DatabaseManager instance for storing artifacts.
         """
-        if artifacts_dir is None:
-            # Default to data/artifacts in the edmcp-latex directory
-            package_dir = Path(__file__).parent.parent.parent
-            artifacts_dir = package_dir / "data" / "artifacts"
-        self.artifacts_dir = Path(artifacts_dir)
-        self.artifacts_dir.mkdir(parents=True, exist_ok=True)
+        self.db_manager = db_manager
 
     def check_installation(self) -> dict:
         """Check if pdflatex is available.
@@ -61,6 +57,8 @@ class LatexCompiler:
         latex_code: str,
         image_assets: Optional[list[dict]] = None,
         output_name: str = "document",
+        template_used: Optional[str] = None,
+        title: Optional[str] = None,
     ) -> dict:
         """Compile LaTeX source code to PDF.
 
@@ -70,9 +68,11 @@ class LatexCompiler:
                          - 'data': base64-encoded image data
                          - 'filename': filename to use in the temp directory
             output_name: Base name for the output file (without extension).
+            template_used: Optional template name used to generate the document.
+            title: Optional document title for metadata.
 
         Returns:
-            Dict with 'success', 'artifact_name', 'artifact_path', and 'log'.
+            Dict with 'success', 'artifact_name', and 'log'.
 
         Raises:
             CompilationError: If compilation fails.
@@ -130,14 +130,14 @@ class LatexCompiler:
                     log_output,
                 )
 
-            # Save artifact with unique name
-            artifact_name = self._save_artifact(pdf_file, output_name)
-            artifact_path = self.artifacts_dir / artifact_name
+            # Save artifact to database
+            artifact_name = self._save_artifact(
+                pdf_file, output_name, template_used, title
+            )
 
             return {
                 "success": True,
                 "artifact_name": artifact_name,
-                "artifact_path": str(artifact_path),
                 "log": log_output,
             }
 
@@ -150,45 +150,58 @@ class LatexCompiler:
         Returns:
             Dict with 'data' (base64), 'filename', 'size_bytes', or None if not found.
         """
-        artifact_path = self.artifacts_dir / artifact_name
-        if not artifact_path.exists():
+        result = self.db_manager.get_latex_artifact(artifact_name)
+        if result is None:
             return None
 
-        pdf_bytes = artifact_path.read_bytes()
         return {
-            "data": base64.b64encode(pdf_bytes).decode("utf-8"),
-            "filename": artifact_name,
-            "size_bytes": len(pdf_bytes),
+            "data": base64.b64encode(result["content"]).decode("utf-8"),
+            "filename": result["artifact_name"],
+            "size_bytes": result["size_bytes"],
         }
 
     def list_artifacts(self) -> list[dict]:
-        """List all artifacts in the artifacts directory.
+        """List all artifacts in the database.
 
         Returns:
-            List of dicts with 'name' and 'size_bytes'.
+            List of dicts with 'name', 'size_bytes', 'created_at', 'template_used', 'title'.
         """
-        artifacts = []
-        for path in sorted(self.artifacts_dir.glob("*.pdf")):
-            artifacts.append({
-                "name": path.name,
-                "size_bytes": path.stat().st_size,
-            })
-        return artifacts
+        artifacts = self.db_manager.list_latex_artifacts()
+        return [
+            {
+                "name": a["artifact_name"],
+                "size_bytes": a["size_bytes"],
+                "created_at": a["created_at"],
+                "template_used": a["template_used"],
+                "title": a["title"],
+            }
+            for a in artifacts
+        ]
 
-    def _save_artifact(self, pdf_path: Path, base_name: str) -> str:
-        """Save PDF to artifacts directory with unique name.
+    def _save_artifact(
+        self,
+        pdf_path: Path,
+        base_name: str,
+        template_used: Optional[str] = None,
+        title: Optional[str] = None,
+    ) -> str:
+        """Save PDF to database with unique name.
 
         Args:
             pdf_path: Path to the source PDF.
             base_name: Base name for the artifact (without extension).
+            template_used: Optional template name used.
+            title: Optional document title.
 
         Returns:
-            The filename of the saved artifact.
+            The artifact name.
         """
         unique_id = uuid.uuid4().hex[:8]
         artifact_name = f"{base_name}_{unique_id}.pdf"
-        target_path = self.artifacts_dir / artifact_name
-        shutil.copy2(pdf_path, target_path)
+        pdf_bytes = pdf_path.read_bytes()
+        self.db_manager.store_latex_artifact(
+            artifact_name, pdf_bytes, template_used, title
+        )
         return artifact_name
 
     def _parse_log(self, log: str) -> list[str]:

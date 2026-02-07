@@ -64,6 +64,19 @@ class DatabaseManager:
             )
         """)
 
+        # LaTeX Artifacts Table (stores compiled PDFs from LaTeX server)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS latex_artifacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                artifact_name TEXT NOT NULL UNIQUE,
+                template_used TEXT,
+                title TEXT,
+                content BLOB NOT NULL,
+                size_bytes INTEGER,
+                created_at TEXT NOT NULL
+            )
+        """)
+
         self.conn.commit()
         self._migrate_schema()
 
@@ -533,6 +546,117 @@ class DatabaseManager:
             except json.JSONDecodeError:
                 return []
         return []
+
+    # LaTeX Artifact Methods
+
+    def store_latex_artifact(
+        self,
+        artifact_name: str,
+        content: bytes,
+        template_used: Optional[str] = None,
+        title: Optional[str] = None,
+    ) -> str:
+        """
+        Stores a compiled LaTeX PDF artifact in the database.
+
+        Args:
+            artifact_name: Unique name for the artifact (e.g., "document_abc123.pdf")
+            content: Binary content of the PDF
+            template_used: Optional template name used to generate the document
+            title: Optional document title
+
+        Returns:
+            The artifact_name
+        """
+        created_at = datetime.now().isoformat()
+        size_bytes = len(content)
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO latex_artifacts (artifact_name, template_used, title, content, size_bytes, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (artifact_name, template_used, title, content, size_bytes, created_at),
+        )
+        self.conn.commit()
+        return artifact_name
+
+    def get_latex_artifact(self, artifact_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves a LaTeX artifact by name.
+
+        Args:
+            artifact_name: The artifact name to retrieve
+
+        Returns:
+            Dict with artifact_name, content, size_bytes, created_at, template_used, title
+            or None if not found
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT artifact_name, content, size_bytes, created_at, template_used, title
+            FROM latex_artifacts
+            WHERE artifact_name = ?
+            """,
+            (artifact_name,),
+        )
+        row = cursor.fetchone()
+        if row:
+            return {
+                "artifact_name": row["artifact_name"],
+                "content": row["content"],
+                "size_bytes": row["size_bytes"],
+                "created_at": row["created_at"],
+                "template_used": row["template_used"],
+                "title": row["title"],
+            }
+        return None
+
+    def list_latex_artifacts(self) -> List[Dict[str, Any]]:
+        """
+        Lists all LaTeX artifacts in the database.
+
+        Returns:
+            List of dicts with artifact_name, size_bytes, created_at, template_used, title
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT artifact_name, size_bytes, created_at, template_used, title
+            FROM latex_artifacts
+            ORDER BY created_at DESC
+            """
+        )
+        rows = cursor.fetchall()
+        return [
+            {
+                "artifact_name": row["artifact_name"],
+                "size_bytes": row["size_bytes"],
+                "created_at": row["created_at"],
+                "template_used": row["template_used"],
+                "title": row["title"],
+            }
+            for row in rows
+        ]
+
+    def delete_latex_artifact(self, artifact_name: str) -> bool:
+        """
+        Deletes a LaTeX artifact from the database.
+
+        Args:
+            artifact_name: The artifact name to delete
+
+        Returns:
+            True if the artifact was deleted, False if not found
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "DELETE FROM latex_artifacts WHERE artifact_name = ?",
+            (artifact_name,),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
 
     def close(self):
         """Closes the database connection."""

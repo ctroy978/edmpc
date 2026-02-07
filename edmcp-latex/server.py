@@ -5,9 +5,11 @@ Tools for compiling LaTeX documents, managing templates, and retrieving artifact
 """
 
 import json
+from pathlib import Path
 from typing import Optional
 
 from fastmcp import FastMCP
+from edmcp_core import DatabaseManager
 
 from edmcp_latex.core import LatexCompiler, TemplateManager, CompilationError
 
@@ -15,16 +17,29 @@ from edmcp_latex.core import LatexCompiler, TemplateManager, CompilationError
 # Initialize MCP server
 mcp = FastMCP("LaTeX Document Server")
 
-# Lazy initialization of compiler and template manager
+# Database setup
+SERVER_DIR = Path(__file__).parent
+DB_PATH = SERVER_DIR / "edmcp.db"
+
+# Lazy initialization of database, compiler and template manager
+_db_manager: Optional[DatabaseManager] = None
 _compiler: Optional[LatexCompiler] = None
 _template_manager: Optional[TemplateManager] = None
+
+
+def get_db_manager() -> DatabaseManager:
+    """Get or create the database manager."""
+    global _db_manager
+    if _db_manager is None:
+        _db_manager = DatabaseManager(DB_PATH)
+    return _db_manager
 
 
 def get_compiler() -> LatexCompiler:
     """Get or create the LaTeX compiler."""
     global _compiler
     if _compiler is None:
-        _compiler = LatexCompiler()
+        _compiler = LatexCompiler(db_manager=get_db_manager())
     return _compiler
 
 
@@ -135,7 +150,6 @@ def compile_latex(latex_code: str, image_assets: str = "[]") -> str:
         return json.dumps({
             "status": "success",
             "artifact_name": result["artifact_name"],
-            "artifact_path": result["artifact_path"],
             "message": f"Compiled successfully: {result['artifact_name']}",
         })
     except CompilationError as e:
@@ -216,11 +230,12 @@ def generate_document(
             latex_code=latex_code,
             image_assets=assets if assets else None,
             output_name=output_name,
+            template_used=template_name,
+            title=title,
         )
         return json.dumps({
             "status": "success",
             "artifact_name": result["artifact_name"],
-            "artifact_path": result["artifact_path"],
             "template": template_name,
             "message": f"Generated document: {result['artifact_name']}",
         })

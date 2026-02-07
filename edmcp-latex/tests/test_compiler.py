@@ -29,7 +29,6 @@ class TestLatexCompiler:
         assert result["success"] is True
         assert "artifact_name" in result
         assert result["artifact_name"].endswith(".pdf")
-        assert "artifact_path" in result
 
     def test_compile_with_output_name(self, compiler, simple_latex):
         """Test compiling with a custom output name."""
@@ -84,12 +83,15 @@ class TestLatexCompiler:
         if not compiler.check_installation()["available"]:
             pytest.skip("pdflatex not available")
 
-        compiler.compile(simple_latex)
+        compiler.compile(simple_latex, template_used="test_template", title="Test Doc")
         artifacts = compiler.list_artifacts()
 
         assert len(artifacts) == 1
         assert artifacts[0]["name"].endswith(".pdf")
         assert artifacts[0]["size_bytes"] > 0
+        assert artifacts[0]["template_used"] == "test_template"
+        assert artifacts[0]["title"] == "Test Doc"
+        assert "created_at" in artifacts[0]
 
     def test_parse_log_extracts_errors(self, compiler):
         """Test that _parse_log extracts error lines."""

@@ -1,24 +1,51 @@
 """Pytest configuration and fixtures for edmcp-latex tests."""
 
-import tempfile
+import sys
 from pathlib import Path
 
 import pytest
+from edmcp_core import DatabaseManager
 
 from edmcp_latex.core import LatexCompiler, TemplateManager
 
 
 @pytest.fixture
-def temp_artifacts_dir():
-    """Create a temporary directory for test artifacts."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield Path(tmpdir)
+def test_db_manager(tmp_path):
+    """Create a DatabaseManager with a temporary database."""
+    db_path = tmp_path / "test_latex.db"
+    return DatabaseManager(db_path)
 
 
 @pytest.fixture
-def compiler(temp_artifacts_dir):
-    """Create a LatexCompiler with a temporary artifacts directory."""
-    return LatexCompiler(artifacts_dir=temp_artifacts_dir)
+def compiler(test_db_manager):
+    """Create a LatexCompiler with a test database manager."""
+    return LatexCompiler(db_manager=test_db_manager)
+
+
+@pytest.fixture(autouse=True)
+def reset_server_state(tmp_path):
+    """Reset server global state before each test to ensure isolation."""
+    # Add parent directory to path so we can import server module
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    import server
+
+    # Reset global state
+    server._db_manager = None
+    server._compiler = None
+    server._template_manager = None
+
+    # Point to a temp database for server tests
+    server.DB_PATH = tmp_path / "test_server.db"
+
+    yield
+
+    # Clean up after test
+    if server._db_manager is not None:
+        server._db_manager.close()
+    server._db_manager = None
+    server._compiler = None
+    server._template_manager = None
 
 
 @pytest.fixture
