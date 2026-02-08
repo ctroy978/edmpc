@@ -166,13 +166,13 @@ def detect_name(text: str) -> Optional[str]:
     # First, try the traditional "Name:" or "ID:" pattern
     match = NAME_HEADER_PATTERN.search(top_section)
     if match:
-        return match.group(1).strip()
+        return regex.sub(r"\s+", " ", match.group(1).strip())
 
     # If no match, check each line against the student roster
     for line in lines:
         normalized_line = regex.sub(r"\s+", " ", line.strip()).casefold()
         if normalized_line in STUDENT_ROSTER:
-            return line.strip()
+            return regex.sub(r"\s+", " ", line.strip())
 
     return None
 
@@ -783,14 +783,14 @@ def validate_student_names(job_id: str) -> dict:
     if not essays:
         return {"status": "error", "message": f"No essays found for job {job_id}"}
 
-    essays_by_id = {essay.get("id"): essay for essay in essays}
-    detected_names = {essay.get("student_name", "Unknown"): essay.get("id") for essay in essays}
     all_students = STUDENT_ROSTER_WITH_EMAILS.get_all_students()
 
     matched = []
     mismatched = []
 
-    for detected_name, essay_id in detected_names.items():
+    for essay in essays:
+        essay_id = essay.get("id")
+        detected_name = essay.get("student_name", "Unknown")
         student_info = STUDENT_ROSTER_WITH_EMAILS.get_student_info(detected_name)
 
         if student_info:
@@ -802,7 +802,6 @@ def validate_student_names(job_id: str) -> dict:
                 "grade": student_info.grade
             })
         else:
-            essay = essays_by_id.get(essay_id, {})
             raw_text = essay.get("raw_text", "")
             preview = raw_text[:300].strip() if raw_text else "(No text available)"
             if len(raw_text) > 300:
@@ -815,7 +814,7 @@ def validate_student_names(job_id: str) -> dict:
                 "reason": "Name not found in school roster"
             })
 
-    detected_names_lower = {name.lower() for name in detected_names.keys()}
+    detected_names_lower = {essay.get("student_name", "Unknown").lower() for essay in essays}
     missing_count = sum(1 for roster_name in all_students.keys() if roster_name.lower() not in detected_names_lower)
 
     return {

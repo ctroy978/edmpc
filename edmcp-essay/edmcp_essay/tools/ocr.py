@@ -93,7 +93,7 @@ class OCRTool:
         # First, try the traditional "Name:" or "ID:" pattern
         match = NAME_HEADER_PATTERN.search(top_section)
         if match:
-            return match.group(1).strip()
+            return regex.sub(r"\s+", " ", match.group(1).strip())
 
         # If no match and we have a student roster, check against it
         if self.student_roster:
@@ -103,7 +103,7 @@ class OCRTool:
 
                 # Check if this line matches any full student name in the roster
                 if normalized_line in self.student_roster:
-                    return line.strip()
+                    return regex.sub(r"\s+", " ", line.strip())
 
         return None
 

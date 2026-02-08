@@ -31,7 +31,7 @@ class NameLoader:
         return self.scrub_set
 
     def _normalize(self, name: str) -> str:
-        return name.strip().lower()
+        return " ".join(name.lower().split())
 
     def _is_valid(self, name: str) -> bool:
         return len(name) >= self.min_length

@@ -31,7 +31,7 @@ class StudentRoster:
 
     def _normalize(self, name: str) -> str:
         """Normalize name for case-insensitive matching"""
-        return name.strip().lower()
+        return " ".join(name.lower().split())
 
     def _load_roster(self):
         """
