@@ -113,15 +113,17 @@ class EmailSender:
             True if email sent successfully, False otherwise
         """
         try:
-            # Create multipart message
-            msg = MIMEMultipart('alternative')
+            # Create multipart message with proper structure for attachments
+            msg = MIMEMultipart('mixed')
             msg['Subject'] = subject
             msg['From'] = f'"{self.from_name}" <{self.from_email}>'
             msg['To'] = to_email
 
-            # Attach plain text and HTML versions
-            msg.attach(MIMEText(body_plain, 'plain'))
-            msg.attach(MIMEText(body_html, 'html'))
+            # Body container with plain text and HTML alternatives
+            body_container = MIMEMultipart('alternative')
+            body_container.attach(MIMEText(body_plain, 'plain'))
+            body_container.attach(MIMEText(body_html, 'html'))
+            msg.attach(body_container)
 
             # Attach files if provided
             if attachments:

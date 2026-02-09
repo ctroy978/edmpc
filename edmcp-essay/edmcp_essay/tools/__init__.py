@@ -9,6 +9,7 @@ from edmcp_essay.tools.emailer import EmailerTool
 from edmcp_essay.tools.name_fixer import NameFixerTool
 from edmcp_essay.tools.archive import ArchiveTool
 from edmcp_essay.tools.cleanup import CleanupTool
+from edmcp_essay.tools.highlighter import HighlighterTool
 
 __all__ = [
     "OCRTool",
@@ -19,4 +20,5 @@ __all__ = [
     "NameFixerTool",
     "ArchiveTool",
     "CleanupTool",
+    "HighlighterTool",
 ]

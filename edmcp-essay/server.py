@@ -52,6 +52,7 @@ from edmcp_essay.tools.archive import ArchiveTool
 from edmcp_essay.tools.converter import DocumentConverter
 from edmcp_essay.tools.emailer import EmailerTool
 from edmcp_essay.tools.name_fixer import NameFixerTool
+from edmcp_essay.tools.highlighter import HighlighterTool
 
 # Define common AI exceptions for retries
 AI_RETRIABLE_EXCEPTIONS = (
@@ -106,6 +107,9 @@ EMAIL_SENDER = EmailSender(
     use_tls=os.environ.get("SMTP_TLS", "true").lower() == "true"
 )
 EMAILER_TOOL = EmailerTool(DB_MANAGER, REPORT_GENERATOR, STUDENT_ROSTER_WITH_EMAILS, EMAIL_SENDER)
+
+# Initialize Highlighter Tool
+HIGHLIGHTER_TOOL = HighlighterTool(DB_MANAGER, str(SERVER_DIR / "data" / "reports"))
 
 # Initialize Name Fixer Tool
 NAME_FIXER_TOOL = NameFixerTool(DB_MANAGER, STUDENT_ROSTER_WITH_EMAILS, REPORT_GENERATOR)
@@ -1221,29 +1225,18 @@ def generate_gradebook(job_id: str) -> dict:
 @mcp.tool
 def generate_student_feedback(job_id: str) -> dict:
     """
-    Generates individual PDF feedback reports for each student.
+    Generates individual annotated HTML feedback reports for each student.
+    Each report includes the grading breakdown and the student's essay with
+    highlighted passages and improvement suggestions.
 
     Args:
         job_id: The ID of the job to report on.
 
     Returns:
-        Summary with paths to generated files.
+        Summary with paths to generated files and ZIP archive.
     """
     try:
-        essays = DB_MANAGER.get_job_essays(job_id)
-        if not essays:
-            return {"status": "error", "message": f"No essays found for job {job_id}"}
-
-        pdf_dir = REPORT_GENERATOR.generate_student_feedback_pdfs(job_id, essays)
-        zip_path = REPORT_GENERATOR.zip_directory(pdf_dir, f"{job_id}_student_feedback", job_id=job_id)
-
-        return {
-            "status": "success",
-            "job_id": job_id,
-            "pdf_directory": pdf_dir,
-            "zip_path": zip_path,
-            "message": f"Individual feedback PDFs generated and zipped at {zip_path}",
-        }
+        return HIGHLIGHTER_TOOL.generate_annotated_feedback_for_job(job_id)
     except Exception as e:
         return {"status": "error", "message": str(e)}
 

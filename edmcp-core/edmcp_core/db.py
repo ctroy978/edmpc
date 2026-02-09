@@ -400,6 +400,29 @@ class DatabaseManager:
         row = cursor.fetchone()
         return row["content"] if row else None
 
+    def get_student_html(self, essay_id: int) -> Optional[bytes]:
+        """
+        Retrieves the HTML feedback report for a specific essay.
+
+        Args:
+            essay_id: The essay ID
+
+        Returns:
+            HTML content as bytes, or None if not found
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT content FROM reports
+            WHERE essay_id = ? AND report_type = 'student_html'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (essay_id,),
+        )
+        row = cursor.fetchone()
+        return row["content"] if row else None
+
     def get_report(
         self, job_id: str, report_type: str, essay_id: Optional[int] = None
     ) -> Optional[bytes]:

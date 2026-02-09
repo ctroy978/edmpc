@@ -109,9 +109,9 @@ class EmailerTool:
         except Exception as e:
             print(f"[Emailer] Warning: Could not write to email log: {e}", file=sys.stderr)
 
-    def _get_student_pdf_path(self, job_id: str, student_name: str, essay_id: int) -> Path:
+    def _get_student_html_path(self, job_id: str, student_name: str, essay_id: int) -> Path:
         """
-        Locate the PDF file for a specific student.
+        Locate the HTML feedback file for a specific student.
         First tries to retrieve from database and write to temp file.
         Falls back to filesystem if not in database (for backwards compatibility).
 
@@ -121,33 +121,32 @@ class EmailerTool:
             essay_id: Essay database ID
 
         Returns:
-            Path to PDF file (either temp file from DB or filesystem path)
+            Path to HTML file (either temp file from DB or filesystem path)
         """
-        # Try to get PDF from database first
-        pdf_content = self.db_manager.get_student_pdf(essay_id)
+        # Try to get HTML from database first
+        html_content = self.db_manager.get_student_html(essay_id)
 
-        if pdf_content:
+        if html_content:
             # Write to temp file for email attachment
             safe_name = student_name.replace(' ', '_')
-            temp_pdf = tempfile.NamedTemporaryFile(
+            temp_html = tempfile.NamedTemporaryFile(
                 mode='wb',
-                suffix='.pdf',
+                suffix='.html',
                 prefix=f'{safe_name}_{essay_id}_',
                 delete=False  # We'll clean up manually after email is sent
             )
-            temp_pdf.write(pdf_content)
-            temp_pdf.close()
-            return Path(temp_pdf.name)
+            temp_html.write(html_content)
+            temp_html.close()
+            return Path(temp_html.name)
 
         # Fallback to filesystem (for backwards compatibility)
         job_dir = self.report_generator._get_job_dir(job_id)
-        pdf_dir = job_dir / "feedback_pdfs"
+        html_dir = job_dir / "feedback_html"
 
-        # PDF filename format matches ReportGenerator: {student_name}_{essay_id}.pdf
         safe_name = student_name.replace(' ', '_')
-        pdf_path = pdf_dir / f"{safe_name}_{essay_id}.pdf"
+        html_path = html_dir / f"{safe_name}_{essay_id}.html"
 
-        return pdf_path
+        return html_path
 
     async def send_feedback_emails(
         self,
@@ -158,7 +157,7 @@ class EmailerTool:
         filter_students: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
-        Main method to send PDF feedback reports to students via email.
+        Main method to send HTML feedback reports to students via email.
 
         Args:
             job_id: The ID of the graded job to send feedback for
@@ -227,7 +226,7 @@ class EmailerTool:
                 print(f"[Emailer] SKIP: Already sent to {student_name}", file=sys.stderr)
                 continue
 
-            pdf_path = None
+            html_path = None
             is_temp_file = False
 
             try:
@@ -249,27 +248,36 @@ class EmailerTool:
                     })
                     continue
 
-                # 2. PDF lookup (may create temp file from database)
-                pdf_path = self._get_student_pdf_path(job_id, student_name, essay_id)
+                # 2. HTML feedback lookup (may create temp file from database)
+                html_path = self._get_student_html_path(job_id, student_name, essay_id)
                 # Check if this is a temp file (will be in system temp directory)
-                is_temp_file = str(pdf_path).startswith(tempfile.gettempdir())
+                is_temp_file = str(html_path).startswith(tempfile.gettempdir())
 
-                if not pdf_path.exists():
+                if not html_path.exists():
                     results["failed"].append({
                         "student": student_name,
                         "email": email,
-                        "error": f"PDF not found at {pdf_path}"
+                        "error": f"HTML feedback not found at {html_path}"
                     })
-                    print(f"[Emailer] ERROR: PDF missing for {student_name} at {pdf_path}", file=sys.stderr)
+                    print(f"[Emailer] ERROR: HTML missing for {student_name} at {html_path}", file=sys.stderr)
 
                     # Log the failure
                     self._write_email_log(job_id, {
                         "student_name": student_name,
                         "email": email,
                         "status": "FAILED",
-                        "error": "PDF not found"
+                        "error": "HTML feedback not found"
                     })
                     continue
+
+                # Use student name in attachment filename
+                safe_name = student_name.replace(' ', '_')
+                attachment_path = html_path
+                renamed_path = html_path.parent / f"{safe_name}_feedback.html"
+                if html_path != renamed_path:
+                    import shutil
+                    shutil.copy2(html_path, renamed_path)
+                    attachment_path = renamed_path
 
                 # 3. Prepare email content
                 subject = subject_template or f"Your Assignment Feedback - {assignment_name}"
@@ -300,7 +308,7 @@ class EmailerTool:
                         subject=subject,
                         body_html=html_body,
                         body_plain=plain_body,
-                        attachments=[pdf_path]
+                        attachments=[attachment_path]
                     )
 
                     if success:
@@ -350,11 +358,11 @@ class EmailerTool:
                 # Continue to next student
             finally:
                 # Clean up temp file if it was created from database
-                if pdf_path and is_temp_file and pdf_path.exists():
+                if html_path and is_temp_file and html_path.exists():
                     try:
-                        pdf_path.unlink()
+                        html_path.unlink()
                     except Exception as cleanup_error:
-                        print(f"[Emailer] Warning: Could not delete temp file {pdf_path}: {cleanup_error}", file=sys.stderr)
+                        print(f"[Emailer] Warning: Could not delete temp file {html_path}: {cleanup_error}", file=sys.stderr)
 
         # Return summary
         return {
