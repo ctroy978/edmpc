@@ -77,6 +77,31 @@ class DatabaseManager:
             )
         """)
 
+        # Scrub Batches Table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS scrub_batches (
+                id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                name TEXT,
+                custom_scrub_words TEXT
+            )
+        """)
+
+        # Scrubbed Documents Table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS scrubbed_documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id TEXT NOT NULL,
+                student_name TEXT,
+                raw_text TEXT,
+                scrubbed_text TEXT,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                metadata TEXT,
+                FOREIGN KEY (batch_id) REFERENCES scrub_batches (id)
+            )
+        """)
+
         self.conn.commit()
         self._migrate_schema()
 
@@ -680,6 +705,145 @@ class DatabaseManager:
         )
         self.conn.commit()
         return cursor.rowcount > 0
+
+    # Scrub Batch Methods
+
+    def create_scrub_batch(self, name: Optional[str] = None) -> str:
+        """Creates a new scrub batch and returns its ID."""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_suffix = str(uuid.uuid4())[:8]
+        batch_id = f"batch_{timestamp}_{unique_suffix}"
+        created_at = datetime.now().isoformat()
+
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT INTO scrub_batches (id, created_at, name) VALUES (?, ?, ?)",
+            (batch_id, created_at, name),
+        )
+        self.conn.commit()
+        return batch_id
+
+    def add_scrubbed_document(
+        self,
+        batch_id: str,
+        student_name: Optional[str],
+        raw_text: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        """Adds a new document to a scrub batch."""
+        metadata_json = json.dumps(metadata) if metadata else None
+
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO scrubbed_documents
+                (batch_id, student_name, raw_text, metadata)
+            VALUES (?, ?, ?, ?)
+            """,
+            (batch_id, student_name, raw_text, metadata_json),
+        )
+        self.conn.commit()
+        doc_id = cursor.lastrowid
+        assert doc_id is not None, "Failed to get document ID after insert"
+        return doc_id
+
+    def update_document_scrubbed(self, doc_id: int, scrubbed_text: str):
+        """Updates a document with scrubbed text and sets status to SCRUBBED."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE scrubbed_documents SET scrubbed_text = ?, status = 'SCRUBBED' WHERE id = ?",
+            (scrubbed_text, doc_id),
+        )
+        self.conn.commit()
+
+    def update_document_name(self, doc_id: int, student_name: str):
+        """Updates a document's student name (teacher correction)."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE scrubbed_documents SET student_name = ? WHERE id = ?",
+            (student_name, doc_id),
+        )
+        self.conn.commit()
+
+    def get_scrub_batch(self, batch_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieves a scrub batch by ID."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM scrub_batches WHERE id = ?", (batch_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def list_scrub_batches(self) -> List[Dict[str, Any]]:
+        """Lists all scrub batches."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM scrub_batches ORDER BY created_at DESC")
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_batch_documents(self, batch_id: str) -> List[Dict[str, Any]]:
+        """Retrieves all documents for a scrub batch."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM scrubbed_documents WHERE batch_id = ?", (batch_id,))
+        results = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            if item["metadata"]:
+                try:
+                    item["metadata"] = json.loads(item["metadata"])
+                except json.JSONDecodeError:
+                    pass
+            results.append(item)
+        return results
+
+    def get_scrubbed_document(self, doc_id: int) -> Optional[Dict[str, Any]]:
+        """Retrieves a single scrubbed document by ID."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM scrubbed_documents WHERE id = ?", (doc_id,))
+        row = cursor.fetchone()
+        if row:
+            item = dict(row)
+            if item["metadata"]:
+                try:
+                    item["metadata"] = json.loads(item["metadata"])
+                except json.JSONDecodeError:
+                    pass
+            return item
+        return None
+
+    def set_batch_custom_scrub_words(self, batch_id: str, words: List[str]) -> bool:
+        """Stores custom scrub words for a batch."""
+        words_json = json.dumps(words)
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE scrub_batches SET custom_scrub_words = ? WHERE id = ?",
+            (words_json, batch_id),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def get_batch_custom_scrub_words(self, batch_id: str) -> List[str]:
+        """Retrieves custom scrub words for a batch."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT custom_scrub_words FROM scrub_batches WHERE id = ?",
+            (batch_id,),
+        )
+        row = cursor.fetchone()
+        if row and row["custom_scrub_words"]:
+            try:
+                return json.loads(row["custom_scrub_words"])
+            except json.JSONDecodeError:
+                return []
+        return []
+
+    def delete_scrub_batch(self, batch_id: str) -> bool:
+        """Deletes a scrub batch and all its documents."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT 1 FROM scrub_batches WHERE id = ?", (batch_id,))
+        if not cursor.fetchone():
+            return False
+        cursor.execute("DELETE FROM scrubbed_documents WHERE batch_id = ?", (batch_id,))
+        cursor.execute("DELETE FROM scrub_batches WHERE id = ?", (batch_id,))
+        self.conn.commit()
+        return True
 
     def close(self):
         """Closes the database connection."""
