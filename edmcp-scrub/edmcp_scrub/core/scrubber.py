@@ -106,4 +106,7 @@ class ScrubberTool:
             self.db_manager.update_document_scrubbed(doc["id"], scrubbed_text)
             scrubbed_count += 1
 
+        if scrubbed_count > 0:
+            self.db_manager.update_scrub_batch_status(batch_id, "SCRUBBED")
+
         return scrubbed_count

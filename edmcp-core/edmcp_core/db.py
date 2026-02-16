@@ -756,6 +756,15 @@ class DatabaseManager:
         )
         self.conn.commit()
 
+    def update_scrub_batch_status(self, batch_id: str, status: str):
+        """Updates a scrub batch's status."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE scrub_batches SET status = ? WHERE id = ?",
+            (status, batch_id),
+        )
+        self.conn.commit()
+
     def update_document_name(self, doc_id: int, student_name: str):
         """Updates a document's student name (teacher correction)."""
         cursor = self.conn.cursor()
