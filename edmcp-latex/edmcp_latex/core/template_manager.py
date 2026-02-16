@@ -13,6 +13,7 @@ class TemplateManager:
         "academic": "Two-column academic handout with title banner and footnotes section",
         "simple": "Minimal single-column document with clean formatting",
         "quiz": "Quiz/worksheet format with name and date fields",
+        "verse": "Two-column poetry layout with preserved line breaks",
     }
 
     def __init__(self, templates_dir: Optional[Path] = None):
