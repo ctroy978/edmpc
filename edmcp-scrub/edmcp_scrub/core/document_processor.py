@@ -42,14 +42,14 @@ class TestAggregate:
         self.parts: list[str] = []
 
     def append_page(self, text: str, page_number: int) -> None:
-        self.parts.append(text)
+        self.parts.append(text.strip())
         self.start_page = min(self.start_page, page_number)
         self.end_page = max(self.end_page, page_number)
 
     def to_dict(self, original_file: str) -> dict:
         return {
             "student_name": self.student_name,
-            "text": "\f".join(self.parts),
+            "text": "\n\n".join(self.parts),
             "metadata": {
                 "source_file": original_file,
                 "start_page": self.start_page,
@@ -174,6 +174,7 @@ class DocumentProcessor:
                             {
                                 "type": "text",
                                 "text": "Extract all text from this document image. "
+                                "Preserve paragraph breaks as blank lines between paragraphs. "
                                 "Return only the text found in the image. "
                                 "Do not add any introductory or concluding remarks.",
                             },
