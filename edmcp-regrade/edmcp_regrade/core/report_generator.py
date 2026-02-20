@@ -9,6 +9,15 @@ from typing import Any, Dict, List, Optional
 from edmcp_regrade.core.regrade_job_manager import RegradeJobManager
 
 
+def _try_get_generated_flag(teacher_comments_raw: str) -> bool:
+    """Return True if teacher_comments JSON has report_generated: true."""
+    try:
+        parsed = json.loads(teacher_comments_raw)
+        return isinstance(parsed, dict) and bool(parsed.get("report_generated"))
+    except (json.JSONDecodeError, TypeError):
+        return False
+
+
 class ReportGenerator:
     """Generates self-contained HTML feedback reports for students."""
 
@@ -41,9 +50,9 @@ class ReportGenerator:
 
     def _build_html(self, job: Dict[str, Any], essay: Dict[str, Any]) -> str:
         """Build the complete standalone HTML document."""
-        student = escape(essay.get("student_identifier", "Unknown"))
-        job_name = escape(job.get("name", ""))
-        assignment = escape(job.get("assignment_title", ""))
+        student = escape(essay.get("student_identifier") or "Unknown")
+        job_name = escape(job.get("name") or "")
+        assignment = escape(job.get("assignment_title") or "")
 
         # Determine final grade (teacher override or AI grade)
         final_grade = escape(essay.get("teacher_grade") or essay.get("grade") or "N/A")
@@ -70,7 +79,7 @@ class ReportGenerator:
         <div class="meta">
             <div class="meta-item"><strong>Student:</strong> {student}</div>
             {"<div class='meta-item'><strong>Assignment:</strong> " + assignment + "</div>" if assignment else ""}
-            {"<div class='meta-item'><strong>Class:</strong> " + escape(job.get('class_name', '')) + "</div>" if job.get('class_name') else ""}
+            {"<div class='meta-item'><strong>Class:</strong> " + escape(job.get('class_name') or '') + "</div>" if job.get('class_name') else ""}
             <div class="meta-item"><strong>Final Grade:</strong> <span class="grade">{final_grade}</span></div>
         </div>
     </header>
@@ -87,7 +96,12 @@ class ReportGenerator:
 </html>"""
 
     def _build_rubric_section(self, essay: Dict[str, Any]) -> str:
-        """Build the criteria breakdown table."""
+        """Build the unified feedback section as cards.
+
+        One section, card format throughout:
+        - First card: the merged teacher/AI overall feedback prose
+        - Remaining cards: per-criterion breakdown with teacher score overrides applied
+        """
         eval_data = essay.get("evaluation")
         if not eval_data or not isinstance(eval_data, dict):
             return ""
@@ -96,81 +110,106 @@ class ReportGenerator:
         if not criteria:
             return ""
 
-        summary = escape(eval_data.get("summary", ""))
+        # Extract teacher score overrides and per-criterion blended justifications
+        teacher_overrides: dict = {}
+        blended_justification_map: dict = {}
+        tc_raw = essay.get("teacher_comments") or ""
+        if tc_raw:
+            try:
+                parsed_tc = json.loads(tc_raw)
+                if isinstance(parsed_tc, dict):
+                    for o in parsed_tc.get("criteria_overrides", []):
+                        cname = o.get("name", "")
+                        cscore = o.get("score", "")
+                        if cname and cscore:
+                            teacher_overrides[cname] = cscore
+                    if parsed_tc.get("report_generated") and parsed_tc.get("criteria_justifications"):
+                        for item in parsed_tc["criteria_justifications"]:
+                            iname = item.get("name", "")
+                            ijust = item.get("blended_justification", "")
+                            if iname and ijust:
+                                blended_justification_map[iname] = ijust
+            except (json.JSONDecodeError, TypeError):
+                pass
 
-        rows = []
+        cards = []
+
+        # Per-criterion cards with teacher score overrides applied
         for c in criteria:
-            name = escape(str(c.get("name", "")))
-            score = escape(str(c.get("score", "")))
+            raw_name = str(c.get("name", ""))
+            name = escape(raw_name)
+            ai_score = str(c.get("score", ""))
+            score = escape(teacher_overrides.get(raw_name, ai_score))
+
             feedback = c.get("feedback", {})
-            justification = escape(str(feedback.get("justification", "")))
-            advice = escape(str(feedback.get("advice", "")))
+            if isinstance(feedback, dict):
+                ai_justification = str(feedback.get("justification", ""))
+                advice = escape(str(feedback.get("advice", "")))
+                examples = feedback.get("examples", []) or []
+            else:
+                ai_justification = str(feedback) if feedback else ""
+                advice = ""
+                examples = []
 
-            examples = feedback.get("examples", [])
-            examples_html = ""
+            # Use blended justification if available, otherwise fall back to AI justification
+            justification = escape(blended_justification_map.get(raw_name, ai_justification))
+
+            just_html = (
+                f'<p class="card-justification">\u2022 {justification}</p>'
+                if justification else ""
+            )
+            advice_html = (
+                f'<p class="card-advice">\u2022 {advice}</p>'
+                if advice else ""
+            )
+            quote_html = ""
             if examples:
-                items = "".join(f"<li>{escape(str(ex))}</li>" for ex in examples)
-                examples_html = f"<ul class='examples'>{items}</ul>"
+                first_quote = escape(str(examples[0]))
+                quote_html = f'<blockquote class="card-quote">{first_quote}</blockquote>'
 
-            rewritten = feedback.get("rewritten_example", "")
-            rewritten_html = ""
-            if rewritten:
-                rewritten_html = f"<div class='rewritten'><strong>Suggested revision:</strong> {escape(str(rewritten))}</div>"
+            cards.append(
+                '<div class="feedback-card">'
+                '<div class="card-header">'
+                f'<span class="card-name">{name}</span>'
+                f'<span class="card-score">{score}</span>'
+                '</div>'
+                f'{just_html}{advice_html}{quote_html}'
+                '</div>'
+            )
 
-            rows.append(f"""
-            <tr>
-                <td class="criterion-name">{name}</td>
-                <td class="criterion-score">{score}</td>
-                <td class="criterion-feedback">
-                    <p>{justification}</p>
-                    {examples_html}
-                    <p class="advice"><strong>Advice:</strong> {advice}</p>
-                    {rewritten_html}
-                </td>
-            </tr>""")
-
-        return f"""
-    <section class="rubric-section">
-        <h2>Rubric Breakdown</h2>
-        {"<p class='summary'>" + summary + "</p>" if summary else ""}
-        <table class="rubric-table">
-            <thead>
-                <tr>
-                    <th>Criterion</th>
-                    <th>Score</th>
-                    <th>Feedback</th>
-                </tr>
-            </thead>
-            <tbody>
-                {"".join(rows)}
-            </tbody>
-        </table>
-    </section>"""
+        return (
+            '<section class="rubric-section">'
+            '<h2>Feedback</h2>'
+            + "".join(cards)
+            + '</section>'
+        )
 
     def _build_comments_section(self, essay: Dict[str, Any]) -> str:
-        """Build the teacher comments section."""
-        comments = essay.get("teacher_comments")
-        annotations = essay.get("teacher_annotations")
+        """Build the inline annotations section.
 
-        if not comments and not annotations:
+        Overall feedback prose is now integrated into the rubric section.
+        This section only surfaces inline annotation notes, if any.
+        """
+        annotations = essay.get("teacher_annotations")
+        if not annotations:
             return ""
 
-        parts = ['<section class="comments-section">', '<h2>Teacher Comments</h2>']
-
-        if comments:
-            parts.append(f"<div class='overall-comments'><p>{escape(str(comments))}</p></div>")
-
-        if annotations:
-            if isinstance(annotations, str):
+        if isinstance(annotations, str):
+            try:
                 annotations = json.loads(annotations)
-            if isinstance(annotations, list) and annotations:
-                parts.append("<div class='annotations'><h3>Inline Notes</h3><ul>")
-                for ann in annotations:
-                    text = escape(str(ann.get("selected_text", "")))
-                    comment = escape(str(ann.get("comment", "")))
-                    parts.append(f"<li><span class='ann-quote'>\"{text}\"</span> &mdash; {comment}</li>")
-                parts.append("</ul></div>")
+            except (json.JSONDecodeError, TypeError):
+                return ""
 
+        if not isinstance(annotations, list) or not annotations:
+            return ""
+
+        parts = ['<section class="comments-section">', '<h2>Inline Notes</h2>']
+        parts.append("<ul>")
+        for ann in annotations:
+            text = escape(str(ann.get("selected_text", "")))
+            comment = escape(str(ann.get("comment", "")))
+            parts.append(f"<li><span class='ann-quote'>\"{text}\"</span> &mdash; {comment}</li>")
+        parts.append("</ul>")
         parts.append("</section>")
         return "\n".join(parts)
 
@@ -285,24 +324,58 @@ h3 { font-size: 1.1rem; margin: 0.75rem 0 0.5rem; }
 .meta-item { }
 .grade { font-weight: bold; color: #2c3e50; font-size: 1.1em; }
 
-/* Rubric Table */
-.rubric-table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
-.rubric-table th, .rubric-table td { border: 1px solid #ddd; padding: 0.6rem 0.8rem; text-align: left; vertical-align: top; }
-.rubric-table th { background: #2c3e50; color: #fff; font-weight: 600; }
-.rubric-table tr:nth-child(even) { background: #f9f9f9; }
-.criterion-name { font-weight: 600; width: 20%; }
-.criterion-score { text-align: center; width: 10%; font-weight: bold; }
-.criterion-feedback p { margin-bottom: 0.4rem; }
-.examples { margin: 0.4rem 0 0.4rem 1.2rem; font-style: italic; color: #555; }
-.advice { color: #1a5276; }
-.rewritten { background: #eaf4e5; padding: 0.4rem 0.6rem; border-radius: 3px; margin-top: 0.4rem; font-size: 0.9rem; }
-.summary { font-style: italic; margin-bottom: 0.75rem; color: #555; }
+/* Feedback cards */
+.feedback-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    background: #f8fafc;
+}
+.card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+.card-name {
+    font-weight: 600;
+    font-size: 1em;
+    color: #1e293b;
+}
+.card-score {
+    background: #3b82f6;
+    color: #fff;
+    font-size: 0.8em;
+    font-weight: bold;
+    padding: 2px 8px;
+    border-radius: 12px;
+    white-space: nowrap;
+}
+.card-justification {
+    margin: 0 0 4px 0;
+    font-size: 0.9em;
+    color: #334155;
+    line-height: 1.7;
+}
+.card-advice {
+    margin: 0 0 4px 0;
+    font-size: 0.9em;
+    color: #1d4ed8;
+}
+.card-quote {
+    margin: 6px 0 0 0;
+    padding: 6px 10px;
+    border-left: 3px solid #94a3b8;
+    color: #64748b;
+    font-style: italic;
+    font-size: 0.85em;
+}
 
-/* Teacher Comments */
-.comments-section { background: #fefce8; border: 1px solid #f0e68c; border-radius: 4px; padding: 1rem 1.5rem; margin-top: 1.5rem; }
-.overall-comments p { margin-bottom: 0.5rem; }
-.annotations ul { list-style: none; padding: 0; }
-.annotations li { margin-bottom: 0.5rem; padding-left: 1rem; border-left: 3px solid #d4a017; }
+/* Inline annotations section */
+.comments-section { margin-top: 1.5rem; }
+.comments-section ul { list-style: none; padding: 0; }
+.comments-section li { margin-bottom: 0.5rem; padding-left: 1rem; border-left: 3px solid #d4a017; }
 .ann-quote { font-style: italic; color: #555; }
 
 /* Essay Section */
@@ -322,6 +395,5 @@ footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; text-a
 @media (max-width: 600px) {
     .container { padding: 1rem; margin: 0; }
     .meta { flex-direction: column; gap: 0.3rem; }
-    .rubric-table { font-size: 0.85rem; }
 }
 """

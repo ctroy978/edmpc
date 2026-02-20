@@ -580,6 +580,40 @@ class RegradeJobManager:
         self.db.conn.commit()
         return cursor.rowcount > 0
 
+    def set_metadata(self, job_id: str, key: str, value: Any) -> bool:
+        """Set a key in the job's metadata JSON. Merges with existing metadata."""
+        job = self.get_job(job_id)
+        if not job:
+            return False
+
+        metadata = job.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata[key] = value
+
+        now = datetime.now().isoformat()
+        cursor = self.db.conn.cursor()
+        cursor.execute(
+            "UPDATE regrade_jobs SET metadata = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(metadata), now, job_id),
+        )
+        self.db.conn.commit()
+        return cursor.rowcount > 0
+
+    def get_metadata(self, job_id: str, key: str = "") -> Any:
+        """Get job metadata. If key is provided, return that key's value. Otherwise return all metadata."""
+        job = self.get_job(job_id)
+        if not job:
+            return None
+
+        metadata = job.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            return None
+
+        if key:
+            return metadata.get(key)
+        return metadata
+
     def get_reviewed_count(self, job_id: str) -> int:
         """Count essays with teacher review (REVIEWED or APPROVED status)."""
         cursor = self.db.conn.cursor()

@@ -576,6 +576,77 @@ def get_job_statistics(job_id: str) -> str:
 
 
 @mcp.tool()
+def set_job_metadata(
+    job_id: str,
+    key: str,
+    value: str,
+) -> str:
+    """
+    Store a key-value pair in a job's metadata JSON. The value is stored as-is
+    (pass a JSON string for structured data). Merges with existing metadata.
+
+    Args:
+        job_id: The regrade job ID
+        key: Metadata key name
+        value: Value to store (string; use JSON string for structured data)
+
+    Returns:
+        JSON with status
+    """
+    manager = get_job_manager()
+
+    # Try to parse value as JSON for structured storage
+    try:
+        parsed_value = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        parsed_value = value
+
+    success = manager.set_metadata(job_id, key, parsed_value)
+
+    if not success:
+        return json.dumps({"status": "error", "message": f"Job not found: {job_id}"})
+
+    return json.dumps({
+        "status": "success",
+        "job_id": job_id,
+        "key": key,
+        "message": f"Metadata '{key}' saved for job {job_id}",
+    })
+
+
+@mcp.tool()
+def get_job_metadata(
+    job_id: str,
+    key: str = "",
+) -> str:
+    """
+    Retrieve metadata from a job. If key is provided, returns that key's value.
+    Otherwise returns all metadata.
+
+    Args:
+        job_id: The regrade job ID
+        key: Optional specific metadata key to retrieve
+
+    Returns:
+        JSON with metadata value(s)
+    """
+    manager = get_job_manager()
+    result = manager.get_metadata(job_id, key=key or "")
+
+    if result is None:
+        if key:
+            return json.dumps({"status": "error", "message": f"Metadata key '{key}' not found for job {job_id}"})
+        return json.dumps({"status": "error", "message": f"Job not found or no metadata: {job_id}"})
+
+    return json.dumps({
+        "status": "success",
+        "job_id": job_id,
+        "key": key or None,
+        "value": result,
+    })
+
+
+@mcp.tool()
 def update_job(
     job_id: str,
     name: str = "",
@@ -776,6 +847,43 @@ def generate_student_report(
     generator = get_report_generator()
     result = generator.generate_student_report(job_id, essay_id)
 
+    return json.dumps(result)
+
+
+@mcp.tool()
+def generate_merged_report(
+    job_id: str,
+    essay_id: int,
+    teacher_notes: str = "",
+    criteria_overrides: str = "",
+    model: str = "",
+) -> str:
+    """
+    Blend AI evaluation + teacher score overrides + teacher notes into per-criterion
+    justification text for the student report. The teacher's input is authoritative —
+    the AI defers to the teacher wherever they disagree.
+
+    Args:
+        job_id: The regrade job ID
+        essay_id: The essay ID
+        teacher_notes: Free-form teacher notes (authoritative)
+        criteria_overrides: JSON string of [{"name": "...", "score": "..."}, ...] overrides
+        model: Optional AI model override
+
+    Returns:
+        JSON with {"status": "success",
+                   "criteria_justifications": [{"name": "...", "blended_justification": "..."}, ...],
+                   "essay_id": ...}
+    """
+    grader = get_grader()
+    overrides = json.loads(criteria_overrides) if criteria_overrides else []
+    result = grader.generate_merged_report(
+        job_id=job_id,
+        essay_id=essay_id,
+        teacher_notes=teacher_notes or None,
+        criteria_overrides=overrides if overrides else None,
+        model=model or None,
+    )
     return json.dumps(result)
 
 
