@@ -3,10 +3,75 @@ Report Generator - Produces standalone HTML student feedback reports.
 """
 
 import json
+import re
 from html import escape
 from typing import Any, Dict, List, Optional
 
 from edmcp_regrade.core.regrade_job_manager import RegradeJobManager
+
+
+def _normalize_essay_text(raw_text: str) -> str:
+    """Mirror the UI normalization so annotation text-matching works correctly.
+
+    The review UI applies this same normalization before displaying the essay,
+    so teacher quotes are drawn from the normalized text.  The report generator
+    must normalize the stored essay_text in the same way, otherwise
+    `text.find(selected_text)` fails for word-per-line PDF sources.
+    """
+    text = raw_text.replace("\f", "\n\n")
+    text = re.sub(r"(?:\s*\n){3,}", "\n\n", text)
+
+    pages = text.split("\n\n")
+
+    normalized: List[str] = []
+    for page in pages:
+        page = page.strip()
+        if not page:
+            continue
+
+        # Collapse space-only blank lines (pypdf word-per-line artifact: "word\n \nword")
+        # to single newlines so they don't generate fake paragraph breaks.
+        page = re.sub(r"\n([ \t]*\n)+", "\n", page)
+
+        lines = page.split("\n")
+        non_blank = [l for l in lines if l.strip()]
+        if not non_blank:
+            continue
+
+        avg_len = sum(len(l) for l in non_blank) / len(non_blank)
+        if avg_len > 200:
+            normalized.append(" ".join(page.split()))
+            continue
+
+        lengths = [len(l.rstrip()) for l in non_blank if len(l.strip()) > 20]
+        if len(lengths) < 3:
+            normalized.append(" ".join(page.split()))
+            continue
+
+        typical = sorted(lengths)[int(len(lengths) * 0.75)]
+        threshold = typical * 0.65
+
+        rebuilt: List[str] = []
+        for i, line in enumerate(lines):
+            stripped = line.rstrip()
+            rebuilt.append(stripped)
+            if i >= len(lines) - 1:
+                continue
+            if stripped == "":
+                rebuilt.append("")
+                continue
+            next_line = lines[i + 1].strip()
+            is_short = len(stripped.strip()) > 0 and len(stripped.rstrip()) < threshold
+            ends_sentence = bool(re.search(r'[.!?"\'\u201d)]\s*$', stripped))
+            if is_short and ends_sentence and next_line:
+                rebuilt.append("")
+
+        page_text = "\n".join(rebuilt)
+        page_text = re.sub(r"(?<!\n)\n(?!\n)", " ", page_text)
+        page_text = re.sub(r" {2,}", " ", page_text)
+        normalized.append(page_text.strip())
+
+    return "\n\n".join(normalized)
 
 
 def _try_get_generated_flag(teacher_comments_raw: str) -> bool:
@@ -185,39 +250,18 @@ class ReportGenerator:
         )
 
     def _build_comments_section(self, essay: Dict[str, Any]) -> str:
-        """Build the inline annotations section.
-
-        Overall feedback prose is now integrated into the rubric section.
-        This section only surfaces inline annotation notes, if any.
-        """
-        annotations = essay.get("teacher_annotations")
-        if not annotations:
-            return ""
-
-        if isinstance(annotations, str):
-            try:
-                annotations = json.loads(annotations)
-            except (json.JSONDecodeError, TypeError):
-                return ""
-
-        if not isinstance(annotations, list) or not annotations:
-            return ""
-
-        parts = ['<section class="comments-section">', '<h2>Inline Notes</h2>']
-        parts.append("<ul>")
-        for ann in annotations:
-            text = escape(str(ann.get("selected_text", "")))
-            comment = escape(str(ann.get("comment", "")))
-            parts.append(f"<li><span class='ann-quote'>\"{text}\"</span> &mdash; {comment}</li>")
-        parts.append("</ul>")
-        parts.append("</section>")
-        return "\n".join(parts)
+        """Inline notes section removed; annotations appear as hover tooltips in the essay."""
+        return ""
 
     def _build_essay_section(self, essay: Dict[str, Any]) -> str:
         """Build the annotated essay section with highlighted passages."""
         essay_text = essay.get("essay_text", "")
         if not essay_text:
             return ""
+
+        # Normalize to match what the teacher sees in the review UI, so that
+        # annotation selected_text can be found via text.find().
+        essay_text = _normalize_essay_text(essay_text)
 
         annotations = essay.get("teacher_annotations")
         if isinstance(annotations, str):
@@ -279,7 +323,7 @@ class ReportGenerator:
             highlighted = escape(text[start:end])
             tooltip = escape(comment)
             parts.append(
-                f'<span class="highlight" title="{tooltip}">{highlighted}</span>'
+                f'<span class="highlight" data-tooltip="{tooltip}">{highlighted}</span>'
             )
             pos = end
 
@@ -372,23 +416,54 @@ h3 { font-size: 1.1rem; margin: 0.75rem 0 0.5rem; }
     font-size: 0.85em;
 }
 
-/* Inline annotations section */
-.comments-section { margin-top: 1.5rem; }
-.comments-section ul { list-style: none; padding: 0; }
-.comments-section li { margin-bottom: 0.5rem; padding-left: 1rem; border-left: 3px solid #d4a017; }
-.ann-quote { font-style: italic; color: #555; }
-
 /* Essay Section */
 .essay-section { margin-top: 1.5rem; }
 .essay-text { background: #fafafa; border: 1px solid #eee; border-radius: 4px; padding: 1.5rem; }
 .essay-text p { margin-bottom: 1rem; text-indent: 2rem; }
 .highlight {
+    position: relative;
     background: #fff3b0;
     border-bottom: 2px solid #d4a017;
     cursor: help;
     padding: 0 2px;
 }
+.highlight::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #2c3e50;
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.85em;
+    font-family: Georgia, serif;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    max-width: 280px;
+    min-width: 120px;
+    text-align: left;
+    z-index: 1000;
+    display: none;
+    pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+}
+.highlight::before {
+    content: '';
+    position: absolute;
+    bottom: calc(100% + 2px);
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: #2c3e50;
+    z-index: 1001;
+    display: none;
+    pointer-events: none;
+}
 .highlight:hover { background: #ffe066; }
+.highlight:hover::after { display: block; }
+.highlight:hover::before { display: block; }
 
 footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; text-align: center; font-size: 0.8rem; color: #999; }
 
