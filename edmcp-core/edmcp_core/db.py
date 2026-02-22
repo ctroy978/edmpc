@@ -139,6 +139,15 @@ class DatabaseManager:
         if "custom_scrub_words" not in jobs_columns:
             cursor.execute("ALTER TABLE jobs ADD COLUMN custom_scrub_words TEXT")
 
+        # Check for columns in scrub_batches
+        cursor.execute("PRAGMA table_info(scrub_batches)")
+        scrub_batches_columns = {row[1] for row in cursor.fetchall()}
+
+        if "archived" not in scrub_batches_columns:
+            cursor.execute(
+                "ALTER TABLE scrub_batches ADD COLUMN archived INTEGER NOT NULL DEFAULT 0"
+            )
+
         self.conn.commit()
 
     def create_job(
@@ -781,11 +790,26 @@ class DatabaseManager:
         row = cursor.fetchone()
         return dict(row) if row else None
 
-    def list_scrub_batches(self) -> List[Dict[str, Any]]:
-        """Lists all scrub batches."""
+    def list_scrub_batches(self, include_archived: bool = False) -> List[Dict[str, Any]]:
+        """Lists scrub batches. Excludes archived batches by default."""
         cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM scrub_batches ORDER BY created_at DESC")
+        if include_archived:
+            cursor.execute("SELECT * FROM scrub_batches ORDER BY created_at DESC")
+        else:
+            cursor.execute(
+                "SELECT * FROM scrub_batches WHERE archived = 0 ORDER BY created_at DESC"
+            )
         return [dict(row) for row in cursor.fetchall()]
+
+    def archive_scrub_batch(self, batch_id: str) -> bool:
+        """Archives a scrub batch (soft delete). Returns True if batch was found and archived."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE scrub_batches SET archived = 1 WHERE id = ? AND archived = 0",
+            (batch_id,),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
 
     def get_batch_documents(self, batch_id: str) -> List[Dict[str, Any]]:
         """Retrieves all documents for a scrub batch."""

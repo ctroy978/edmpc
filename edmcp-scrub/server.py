@@ -512,19 +512,53 @@ def get_batch_statistics(batch_id: str) -> dict:
 
 
 @mcp.tool
-def list_batches() -> dict:
+def list_batches(include_archived: bool = False) -> dict:
     """
-    List all scrub batches.
+    List scrub batches. Excludes archived batches by default.
+
+    Args:
+        include_archived: Set True to also show archived batches (default: False)
 
     Returns:
         List of batches with their status
     """
     try:
-        batches = DB_MANAGER.list_scrub_batches()
+        batches = DB_MANAGER.list_scrub_batches(include_archived=include_archived)
         return {
             "status": "success",
             "count": len(batches),
             "batches": batches,
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool
+def archive_batch(batch_id: str) -> dict:
+    """
+    Archive a scrub batch (soft delete). Archived batches are hidden from
+    list_batches by default but their documents remain accessible via
+    get_batch_documents and get_scrubbed_document.
+
+    Args:
+        batch_id: The batch ID to archive
+
+    Returns:
+        Status of the operation
+    """
+    try:
+        batch = DB_MANAGER.get_scrub_batch(batch_id)
+        if not batch:
+            return {"status": "error", "message": f"Batch not found: {batch_id}"}
+
+        archived = DB_MANAGER.archive_scrub_batch(batch_id)
+        if not archived:
+            return {"status": "error", "message": f"Batch already archived: {batch_id}"}
+
+        return {
+            "status": "success",
+            "batch_id": batch_id,
+            "message": f"Archived batch {batch_id}",
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
