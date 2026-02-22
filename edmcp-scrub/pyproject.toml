@@ -10,6 +10,7 @@ dependencies = [
     "pypdf>=4.0.0",
     "pdf2image>=1.16.0",
     "openai>=1.0.0",
+    "pdfplumber>=0.11.9",
 ]
 
 [project.optional-dependencies]

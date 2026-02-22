@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional, List, Union
 
 import regex
+import pdfplumber
 from pdf2image import convert_from_path
 from pypdf import PdfReader
 from openai import OpenAI
@@ -121,33 +122,92 @@ class DocumentProcessor:
         return match.group(1).strip() if match else None
 
     @staticmethod
+    def _extract_page_text_pdfplumber(page) -> str:
+        """
+        Extract text from a single pdfplumber page with paragraph-aware formatting.
+
+        Uses word bounding boxes to detect line boundaries and gap analysis to
+        distinguish paragraph breaks (large vertical gap) from line breaks (small gap).
+        """
+        words = page.extract_words(
+            x_tolerance=3,
+            y_tolerance=3,
+            keep_blank_chars=False,
+            use_text_flow=True,
+        )
+        if not words:
+            return ""
+
+        # Group words into lines by clustering on their `top` (y) coordinate.
+        # Words within 3pt of each other vertically are on the same line.
+        lines: list[list[dict]] = []
+        current_line: list[dict] = []
+        current_top = words[0]["top"]
+
+        for word in words:
+            if abs(word["top"] - current_top) <= 3:
+                current_line.append(word)
+            else:
+                lines.append(current_line)
+                current_line = [word]
+                current_top = word["top"]
+        if current_line:
+            lines.append(current_line)
+
+        if len(lines) < 2:
+            return " ".join(w["text"] for w in lines[0]) if lines else ""
+
+        # Compute top-to-top gaps between consecutive lines.
+        tops = [line[0]["top"] for line in lines]
+        gaps = [tops[i + 1] - tops[i] for i in range(len(tops) - 1)]
+
+        # Median gap represents normal line spacing; 1.5× is the paragraph threshold.
+        sorted_gaps = sorted(gaps)
+        median_gap = sorted_gaps[len(sorted_gaps) // 2]
+        para_threshold = median_gap * 1.5
+
+        # Build the text, joining words on each line and inserting \n\n for paragraphs.
+        line_texts = [" ".join(w["text"] for w in line) for line in lines]
+        parts = [line_texts[0]]
+        for i, gap in enumerate(gaps):
+            separator = "\n\n" if gap >= para_threshold else "\n"
+            parts.append(separator + line_texts[i + 1])
+
+        return "".join(parts)
+
+    @staticmethod
     def extract_text_from_pdf(pdf_path: Union[str, Path]) -> Optional[List[str]]:
         """
         Try native text extraction from PDF (for typed/digital PDFs).
         Returns list of page texts if successful, None if scanned/image-based.
+
+        Uses pdfplumber for accurate layout analysis and paragraph detection.
+        Falls back to pypdf if pdfplumber fails.
         """
+        pdf_path = Path(pdf_path)
         try:
-            reader = PdfReader(str(pdf_path))
             page_texts = []
             total_chars = 0
 
-            for page in reader.pages:
-                text = page.extract_text()
-                page_texts.append(text)
-                total_chars += len(text.strip())
+            with pdfplumber.open(str(pdf_path)) as pdf:
+                for page in pdf.pages:
+                    text = DocumentProcessor._extract_page_text_pdfplumber(page)
+                    page_texts.append(text)
+                    total_chars += len(text.strip())
 
-            avg_chars_per_page = total_chars / len(reader.pages) if reader.pages else 0
+            num_pages = len(page_texts)
+            avg_chars_per_page = total_chars / num_pages if num_pages else 0
 
             if avg_chars_per_page < 10:
                 print(
-                    f"[PDF Extract] {Path(pdf_path).name}: Low text content "
+                    f"[PDF Extract] {pdf_path.name}: Low text content "
                     f"({avg_chars_per_page:.0f} chars/page), using OCR",
                     file=sys.stderr,
                 )
                 return None
 
             print(
-                f"[PDF Extract] {Path(pdf_path).name}: Text extracted successfully "
+                f"[PDF Extract] {pdf_path.name}: Text extracted successfully "
                 f"({avg_chars_per_page:.0f} chars/page)",
                 file=sys.stderr,
             )
@@ -155,7 +215,40 @@ class DocumentProcessor:
 
         except Exception as e:
             print(
-                f"[PDF Extract] {Path(pdf_path).name}: Text extraction failed ({e}), using OCR",
+                f"[PDF Extract] {pdf_path.name}: pdfplumber failed ({e}), trying pypdf",
+                file=sys.stderr,
+            )
+
+        # Fallback to pypdf
+        try:
+            reader = PdfReader(str(pdf_path))
+            page_texts = []
+            total_chars = 0
+
+            for page in reader.pages:
+                text = page.extract_text() or ""
+                page_texts.append(text)
+                total_chars += len(text.strip())
+
+            avg_chars_per_page = total_chars / len(reader.pages) if reader.pages else 0
+
+            if avg_chars_per_page < 10:
+                print(
+                    f"[PDF Extract] {pdf_path.name}: Low text content (pypdf fallback), using OCR",
+                    file=sys.stderr,
+                )
+                return None
+
+            print(
+                f"[PDF Extract] {pdf_path.name}: Extracted via pypdf fallback "
+                f"({avg_chars_per_page:.0f} chars/page)",
+                file=sys.stderr,
+            )
+            return page_texts
+
+        except Exception as e:
+            print(
+                f"[PDF Extract] {pdf_path.name}: Text extraction failed ({e}), using OCR",
                 file=sys.stderr,
             )
             return None
