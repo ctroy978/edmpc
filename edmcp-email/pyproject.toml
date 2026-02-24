@@ -1,0 +1,24 @@
+[project]
+name = "edmcp-email"
+version = "0.1.0"
+description = "FastMCP server for universal email delivery of student reports"
+requires-python = ">=3.10"
+dependencies = [
+    "edmcp-core",
+    "fastmcp>=2.0.0",
+    "aiosmtplib>=3.0.0",
+    "jinja2>=3.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+]
+
+[tool.uv.sources]
+edmcp-core = { path = "../edmcp-core", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

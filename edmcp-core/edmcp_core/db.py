@@ -102,6 +102,22 @@ class DatabaseManager:
             )
         """)
 
+        # Email Logs Table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS email_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id TEXT NOT NULL,
+                report_type TEXT NOT NULL,
+                student_name TEXT NOT NULL,
+                email_address TEXT,
+                status TEXT NOT NULL,
+                reason TEXT,
+                subject TEXT,
+                template_used TEXT,
+                sent_at TEXT NOT NULL
+            )
+        """)
+
         self.conn.commit()
         self._migrate_schema()
 
@@ -877,6 +893,93 @@ class DatabaseManager:
         cursor.execute("DELETE FROM scrub_batches WHERE id = ?", (batch_id,))
         self.conn.commit()
         return True
+
+    # Email Log Methods
+
+    def log_email(
+        self,
+        job_id: str,
+        report_type: str,
+        student_name: str,
+        status: str,
+        email_address: Optional[str] = None,
+        reason: Optional[str] = None,
+        subject: Optional[str] = None,
+        template_used: Optional[str] = None,
+    ) -> int:
+        """
+        Logs an email send attempt to the email_logs table.
+
+        Args:
+            job_id: The job this email belongs to
+            report_type: Type of report sent (e.g., 'student_html', 'student_pdf')
+            student_name: Student's full name
+            status: SENT | FAILED | SKIPPED | DRY_RUN
+            email_address: Recipient email address
+            reason: Optional reason (for FAILED or SKIPPED)
+            subject: Email subject line used
+            template_used: Name of the email template used
+
+        Returns:
+            The log entry ID
+        """
+        sent_at = datetime.now().isoformat()
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO email_logs
+                (job_id, report_type, student_name, email_address, status, reason, subject, template_used, sent_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (job_id, report_type, student_name, email_address, status, reason, subject, template_used, sent_at),
+        )
+        self.conn.commit()
+        log_id = cursor.lastrowid
+        assert log_id is not None, "Failed to get log ID after insert"
+        return log_id
+
+    def get_email_log(self, job_id: str, report_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves email log entries for a job.
+
+        Args:
+            job_id: The job ID to query
+            report_type: Optional filter by report type
+
+        Returns:
+            List of log entry dicts
+        """
+        cursor = self.conn.cursor()
+        if report_type is not None:
+            cursor.execute(
+                "SELECT * FROM email_logs WHERE job_id = ? AND report_type = ? ORDER BY sent_at DESC",
+                (job_id, report_type),
+            )
+        else:
+            cursor.execute(
+                "SELECT * FROM email_logs WHERE job_id = ? ORDER BY sent_at DESC",
+                (job_id,),
+            )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_sent_students(self, job_id: str, report_type: str) -> set:
+        """
+        Returns the set of student names that have already been successfully sent
+        for a given job and report type. Used for idempotency checks.
+
+        Args:
+            job_id: The job ID
+            report_type: The report type
+
+        Returns:
+            Set of student names with status='SENT'
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT student_name FROM email_logs WHERE job_id = ? AND report_type = ? AND status = 'SENT'",
+            (job_id, report_type),
+        )
+        return {row["student_name"] for row in cursor.fetchall()}
 
     def close(self):
         """Closes the database connection."""
