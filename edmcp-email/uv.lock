@@ -1003,6 +1003,7 @@ dependencies = [
     { name = "edmcp-core" },
     { name = "fastmcp" },
     { name = "jinja2" },
+    { name = "python-dotenv" },
 ]
 
 [package.dev-dependencies]
@@ -1017,6 +1018,7 @@ requires-dist = [
     { name = "edmcp-core", editable = "../edmcp-core" },
     { name = "fastmcp", specifier = ">=2.0.0" },
     { name = "jinja2", specifier = ">=3.1.0" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
 ]
 
 [package.metadata.requires-dev]

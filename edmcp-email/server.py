@@ -10,6 +10,11 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from dotenv import load_dotenv
+
+# Load credentials from the project-level .env (walks up from this file's location)
+load_dotenv(Path(__file__).parent.parent / ".env")
+
 import fastmcp
 from edmcp_core.db import DatabaseManager
 from edmcp_email.core.email_sender import EmailSender
@@ -397,6 +402,57 @@ def list_available_reports(job_id: str) -> dict:
             "total": len(reports),
             "by_type": by_type,
             "reports": reports,
+        }
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def store_report(
+    job_id: str,
+    student_name: str,
+    content: str,
+    report_type: str = "student_html",
+    filename: Optional[str] = None,
+) -> dict:
+    """
+    Store a generated report in the central DB for later email delivery.
+
+    Creates a stub essays entry (if needed) and a reports entry.
+    Call this before send_reports for reports generated outside the DB pipeline.
+
+    Args:
+        job_id: The job this report belongs to
+        student_name: Real student name (must match roster for email lookup)
+        content: Report content as UTF-8 string (HTML)
+        report_type: e.g. 'student_html', 'student_pdf'. Default: 'student_html'
+        filename: Attachment filename. Auto-generated from student_name if omitted.
+
+    Returns:
+        Dict with essay_id and report_id
+    """
+    db = _get_db()
+    try:
+        if not filename:
+            safe = student_name.replace(" ", "_")
+            ext = ReportFetcher.EXTENSION_MAP.get(report_type, ".bin")
+            filename = f"{safe}_feedback{ext}"
+
+        # Get or create stub essays entry for this student
+        essays = db.get_job_essays(job_id)
+        essay_entry = next((e for e in essays if e["student_name"] == student_name), None)
+        if essay_entry:
+            essay_id = essay_entry["id"]
+        else:
+            essay_id = db.add_essay(job_id, student_name, raw_text="")
+
+        content_bytes = content.encode("utf-8")
+        report_id = db.store_report(job_id, report_type, filename, content_bytes, essay_id)
+        return {
+            "status": "success",
+            "essay_id": essay_id,
+            "report_id": report_id,
+            "filename": filename,
         }
     finally:
         db.close()
