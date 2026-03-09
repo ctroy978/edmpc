@@ -1,6 +1,5 @@
 """Template management for LaTeX document generation."""
 
-import re
 from pathlib import Path
 from typing import Optional
 
@@ -59,6 +58,44 @@ class TemplateManager:
             return None
         return template_path.read_text(encoding="utf-8")
 
+    def escape_latex(self, text: str) -> str:
+        """Escape special LaTeX characters in plain text.
+
+        Args:
+            text: Plain text string that should be treated as literal text.
+
+        Returns:
+            String safe for insertion into LaTeX source.
+        """
+        # Process each character position once to avoid double-escaping.
+        # Backslash must be handled first; braces must be handled before
+        # characters whose replacements introduce braces (textbackslash etc).
+        result = []
+        for ch in text:
+            if ch == "\\":
+                result.append("\\textbackslash{}")
+            elif ch == "{":
+                result.append("\\{")
+            elif ch == "}":
+                result.append("\\}")
+            elif ch == "&":
+                result.append("\\&")
+            elif ch == "%":
+                result.append("\\%")
+            elif ch == "$":
+                result.append("\\$")
+            elif ch == "#":
+                result.append("\\#")
+            elif ch == "_":
+                result.append("\\_")
+            elif ch == "~":
+                result.append("\\textasciitilde{}")
+            elif ch == "^":
+                result.append("\\textasciicircum{}")
+            else:
+                result.append(ch)
+        return "".join(result)
+
     def render(
         self,
         template_name: str,
@@ -71,10 +108,10 @@ class TemplateManager:
 
         Args:
             template_name: Name of the template to use.
-            title: Document title.
-            content: Main document content (LaTeX).
-            author: Author name.
-            footnotes: Footnotes/notes section content.
+            title: Document title (plain text, will be escaped).
+            content: Main document content (LaTeX allowed, not escaped).
+            author: Author name (plain text, will be escaped).
+            footnotes: Footnotes/notes section content (LaTeX allowed, not escaped).
 
         Returns:
             Rendered LaTeX source code.
@@ -92,11 +129,12 @@ class TemplateManager:
 
         # Perform placeholder substitution
         # Placeholders use {{name}} format
+        # All user-supplied text is plain text — escape LaTeX special chars
         rendered = template
-        rendered = self._substitute(rendered, "title", title)
-        rendered = self._substitute(rendered, "content", content)
-        rendered = self._substitute(rendered, "author", author)
-        rendered = self._substitute(rendered, "footnotes", footnotes)
+        rendered = self._substitute(rendered, "title", self.escape_latex(title))
+        rendered = self._substitute(rendered, "content", self.escape_latex(content))
+        rendered = self._substitute(rendered, "author", self.escape_latex(author))
+        rendered = self._substitute(rendered, "footnotes", self.escape_latex(footnotes))
 
         return rendered
 

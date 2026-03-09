@@ -2,9 +2,13 @@
 Report Generator - Produces standalone HTML student feedback reports.
 """
 
+import csv
 import json
 import re
+import shutil
+from datetime import datetime
 from html import escape
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from edmcp_regrade.core.regrade_job_manager import RegradeJobManager
@@ -342,6 +346,128 @@ class ReportGenerator:
             if stripped:
                 result.append(f"<p>{escape(stripped)}</p>")
         return "".join(result) if result else escape(text)
+
+    def generate_gradebook_csv(self, job_id: str, output_dir: Path) -> str:
+        """
+        Generate a CSV gradebook for a job.
+
+        Columns: Student Name, Final Score, <criterion_1>, <criterion_2>, ...
+        Final Score uses teacher_grade if set, otherwise AI grade.
+        Per-criterion scores use teacher overrides (from teacher_comments JSON) when available.
+
+        Returns the path to the generated CSV file, or "" on failure.
+        """
+        essays = self.job_manager.get_job_essays(job_id, include_text=True)
+        if not essays:
+            return ""
+
+        # Discover all unique criteria names in order of first appearance
+        criteria_names: List[str] = []
+        for essay in essays:
+            eval_data = essay.get("evaluation")
+            if not eval_data or not isinstance(eval_data, dict):
+                continue
+            for c in eval_data.get("criteria", []):
+                name = c.get("name")
+                if name and name not in criteria_names:
+                    criteria_names.append(name)
+
+        headers = ["Student Name", "Final Score"] + criteria_names
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = output_dir / f"{job_id}_gradebook.csv"
+
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=headers, extrasaction="ignore")
+            writer.writeheader()
+
+            for essay in essays:
+                student = essay.get("student_identifier", "Unknown")
+                final_score = essay.get("teacher_grade") or essay.get("grade") or ""
+
+                # Extract per-criterion teacher overrides from teacher_comments JSON
+                teacher_overrides: Dict[str, str] = {}
+                tc_raw = essay.get("teacher_comments") or ""
+                if tc_raw:
+                    try:
+                        parsed_tc = json.loads(tc_raw)
+                        if isinstance(parsed_tc, dict):
+                            for o in parsed_tc.get("criteria_overrides", []):
+                                cname = o.get("name", "")
+                                cscore = o.get("score", "")
+                                if cname and cscore:
+                                    teacher_overrides[cname] = cscore
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                row: Dict[str, Any] = {"Student Name": student, "Final Score": final_score}
+
+                eval_data = essay.get("evaluation")
+                if eval_data and isinstance(eval_data, dict):
+                    for c in eval_data.get("criteria", []):
+                        cname = c.get("name", "")
+                        ai_score = str(c.get("score", ""))
+                        row[cname] = teacher_overrides.get(cname, ai_score)
+
+                writer.writerow(row)
+
+        return str(csv_path)
+
+    def package_evaluation_reports(self, job_id: str, output_base: Path) -> Dict[str, Any]:
+        """
+        Bundle all student HTML feedback reports + a gradebook CSV into a ZIP archive.
+
+        Only includes essays with status GRADED, REVIEWED, or APPROVED.
+        Returns a dict with status, zip_path, report_count, and csv_path.
+        """
+        job = self.job_manager.get_job(job_id)
+        if not job:
+            return {"status": "error", "message": f"Job not found: {job_id}"}
+
+        essays = self.job_manager.get_job_essays(job_id, include_text=True)
+        if not essays:
+            return {"status": "error", "message": "No essays found for this job"}
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        staging = output_base / f"{job_id}_package_{timestamp}"
+        staging.mkdir(parents=True, exist_ok=True)
+
+        report_count = 0
+        skipped = []
+
+        try:
+            for essay in essays:
+                if essay.get("status") not in ("GRADED", "REVIEWED", "APPROVED"):
+                    skipped.append(essay.get("student_identifier", f"id:{essay['id']}"))
+                    continue
+
+                essay_id = essay["id"]
+                student = (essay.get("student_identifier") or "unknown").replace(" ", "_")
+                html_result = self.generate_student_report(job_id, essay_id)
+
+                if html_result.get("status") == "success":
+                    html_path = staging / f"{student}_feedback.html"
+                    html_path.write_text(html_result["html"], encoding="utf-8")
+                    report_count += 1
+
+            # Generate gradebook CSV into the same staging directory
+            csv_path = self.generate_gradebook_csv(job_id, staging)
+
+            # Zip the staging directory
+            zip_base = output_base / f"{job_id}_reports_{timestamp}"
+            zip_path = shutil.make_archive(str(zip_base), "zip", str(staging))
+
+            return {
+                "status": "success",
+                "zip_path": zip_path,
+                "csv_path": csv_path,
+                "report_count": report_count,
+                "skipped": skipped,
+            }
+
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging)
 
     def _get_css(self) -> str:
         return """

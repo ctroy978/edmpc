@@ -887,5 +887,64 @@ def generate_merged_report(
     return json.dumps(result)
 
 
+@mcp.tool()
+def generate_gradebook_csv(job_id: str) -> str:
+    """
+    Generate a CSV gradebook for a regrade job.
+
+    Columns: Student Name, Final Score, then one column per rubric criterion.
+    Final Score uses the teacher's grade override when present, otherwise the AI grade.
+    Per-criterion scores likewise use teacher overrides where available.
+
+    The CSV is written to the shared data/exports/ directory.
+
+    Args:
+        job_id: The regrade job ID
+
+    Returns:
+        JSON with status and csv_path
+    """
+    generator = get_report_generator()
+    output_dir = DATA_DIR / "exports"
+    csv_path = generator.generate_gradebook_csv(job_id, output_dir)
+
+    if not csv_path:
+        return json.dumps({
+            "status": "error",
+            "message": f"No essays found for job {job_id} or job does not exist",
+        })
+
+    return json.dumps({
+        "status": "success",
+        "job_id": job_id,
+        "csv_path": csv_path,
+        "message": f"Gradebook CSV written to {csv_path}",
+    })
+
+
+@mcp.tool()
+def package_evaluation_reports(job_id: str) -> str:
+    """
+    Bundle all student feedback HTML reports and a gradebook CSV into a ZIP archive.
+
+    Generates an HTML feedback report for every graded/reviewed essay, plus a
+    gradebook CSV with each student's name, final score, and per-criterion scores.
+    Everything is zipped into a single archive ready for download.
+
+    Args:
+        job_id: The regrade job ID
+
+    Returns:
+        JSON with status, zip_path, csv_path, and report_count
+    """
+    generator = get_report_generator()
+    output_base = DATA_DIR / "exports"
+    output_base.mkdir(parents=True, exist_ok=True)
+
+    result = generator.package_evaluation_reports(job_id, output_base)
+    result["job_id"] = job_id
+    return json.dumps(result)
+
+
 if __name__ == "__main__":
     mcp.run()
