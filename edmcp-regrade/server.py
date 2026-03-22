@@ -888,6 +888,52 @@ def generate_merged_report(
 
 
 @mcp.tool()
+def refine_teacher_notes(
+    job_id: str,
+    essay_id: int,
+    teacher_notes: str = "",
+    model: str = "",
+) -> str:
+    """
+    Use AI to clean up and professionalize the teacher's free-form notes for a student essay.
+    The refined notes are stored in the essay's teacher_comments and will appear as a
+    separate section in the student report below the AI rubric feedback.
+
+    Args:
+        job_id: The regrade job ID
+        essay_id: The essay ID
+        teacher_notes: The teacher's raw notes to refine
+        model: Optional AI model override
+
+    Returns:
+        JSON with {"status": "success", "refined_notes": "...", "essay_id": ...}
+    """
+    grader = get_grader()
+    result = grader.refine_teacher_notes(
+        job_id=job_id,
+        essay_id=essay_id,
+        teacher_notes=teacher_notes or "",
+        model=model or None,
+    )
+
+    if result.get("status") == "success":
+        # Store refined notes in teacher_comments JSON
+        job_manager = get_job_manager()
+        essay = job_manager.get_essay(essay_id)
+        if essay:
+            tc_raw = essay.get("teacher_comments") or ""
+            try:
+                parsed_tc = json.loads(tc_raw) if tc_raw else {}
+            except (json.JSONDecodeError, TypeError):
+                parsed_tc = {}
+            parsed_tc["refined_teacher_notes"] = result.get("refined_notes", "")
+            parsed_tc["report_generated"] = True
+            job_manager.update_essay_review(essay_id, teacher_comments=json.dumps(parsed_tc))
+
+    return json.dumps(result)
+
+
+@mcp.tool()
 def generate_gradebook_csv(job_id: str) -> str:
     """
     Generate a CSV gradebook for a regrade job.

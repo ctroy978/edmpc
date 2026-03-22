@@ -334,6 +334,76 @@ Output ONLY valid JSON — no prose, no markdown fences, no extra commentary."""
             print(f"[Regrade] Error generating merged report for essay {essay_id}: {e}", file=sys.stderr)
             return {"status": "error", "message": f"Report generation failed: {e}"}
 
+    def refine_teacher_notes(
+        self,
+        job_id: str,
+        essay_id: int,
+        teacher_notes: str,
+        model: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Use AI to clean up and professionalize the teacher's free-form notes.
+        Preserves teacher intent and specific observations while improving clarity and tone.
+
+        Args:
+            job_id: The job ID
+            essay_id: The essay ID
+            teacher_notes: Raw teacher notes to refine
+            model: Optional model override
+        """
+        if not teacher_notes or not teacher_notes.strip():
+            return {"status": "success", "refined_notes": "", "essay_id": essay_id}
+
+        job = self.job_manager.get_job(job_id)
+        if not job:
+            return {"status": "error", "message": f"Job not found: {job_id}"}
+
+        model = model or os.environ.get("EVALUATION_API_MODEL") or os.environ.get("XAI_API_MODEL") or "grok-beta"
+
+        try:
+            client = get_openai_client(
+                api_key=os.environ.get("EVALUATION_API_KEY") or os.environ.get("XAI_API_KEY"),
+                base_url=os.environ.get("EVALUATION_BASE_URL") or os.environ.get("XAI_BASE_URL"),
+            )
+        except Exception as e:
+            return {"status": "error", "message": f"Failed to get AI client: {e}"}
+
+        parts = [
+            "You are an expert writing coach helping a teacher provide professional, encouraging feedback to a student.",
+            "Below are the teacher's draft comments. Your task:",
+            "1. Preserve the teacher's intent and specific observations exactly — do not invent new points",
+            "2. Make the language clearer, more professional, and encouraging",
+            "3. Keep the teacher's voice — don't make it sound generic or AI-generated",
+            "4. Write in second person addressing the student (e.g. 'Your essay...')",
+            "5. Return ONLY the refined comments as plain text, no explanation, no JSON",
+            "",
+        ]
+
+        if job.get("rubric"):
+            parts.append(f"RUBRIC CONTEXT:\n{job['rubric']}\n")
+
+        parts.append(f"TEACHER'S DRAFT COMMENTS:\n{teacher_notes}")
+
+        prompt = "\n".join(parts)
+
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You refine teacher feedback to be professional and encouraging while preserving the teacher's specific observations."},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=2000,
+                temperature=0.3,
+            )
+            refined_notes = response.choices[0].message.content.strip()
+            print(f"[Regrade] Refined teacher notes for essay {essay_id}", file=sys.stderr)
+            return {"status": "success", "refined_notes": refined_notes, "essay_id": essay_id}
+
+        except Exception as e:
+            print(f"[Regrade] Error refining teacher notes for essay {essay_id}: {e}", file=sys.stderr)
+            return {"status": "error", "message": f"Note refinement failed: {e}"}
+
     def refine_comments(
         self,
         job_id: str,

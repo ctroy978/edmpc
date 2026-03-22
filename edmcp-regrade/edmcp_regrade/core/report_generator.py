@@ -179,9 +179,8 @@ class ReportGenerator:
         if not criteria:
             return ""
 
-        # Extract teacher score overrides and per-criterion blended justifications
+        # Extract teacher score overrides
         teacher_overrides: dict = {}
-        blended_justification_map: dict = {}
         tc_raw = essay.get("teacher_comments") or ""
         if tc_raw:
             try:
@@ -192,12 +191,6 @@ class ReportGenerator:
                         cscore = o.get("score", "")
                         if cname and cscore:
                             teacher_overrides[cname] = cscore
-                    if parsed_tc.get("report_generated") and parsed_tc.get("criteria_justifications"):
-                        for item in parsed_tc["criteria_justifications"]:
-                            iname = item.get("name", "")
-                            ijust = item.get("blended_justification", "")
-                            if iname and ijust:
-                                blended_justification_map[iname] = ijust
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -220,8 +213,7 @@ class ReportGenerator:
                 advice = ""
                 examples = []
 
-            # Use blended justification if available, otherwise fall back to AI justification
-            justification = escape(blended_justification_map.get(raw_name, ai_justification))
+            justification = escape(ai_justification)
 
             just_html = (
                 f'<p class="card-justification">\u2022 {justification}</p>'
@@ -254,8 +246,32 @@ class ReportGenerator:
         )
 
     def _build_comments_section(self, essay: Dict[str, Any]) -> str:
-        """Inline notes section removed; annotations appear as hover tooltips in the essay."""
-        return ""
+        """Build the teacher comments section shown below the rubric cards.
+
+        Displays AI-polished teacher notes (refined_teacher_notes) if available,
+        falling back to raw teacher_notes. Returns empty string if no notes exist.
+        """
+        tc_raw = essay.get("teacher_comments") or ""
+        notes_text = ""
+        if tc_raw:
+            try:
+                parsed_tc = json.loads(tc_raw)
+                if isinstance(parsed_tc, dict):
+                    notes_text = parsed_tc.get("refined_teacher_notes") or parsed_tc.get("teacher_notes") or ""
+            except (json.JSONDecodeError, TypeError):
+                notes_text = tc_raw
+
+        if not notes_text or not notes_text.strip():
+            return ""
+
+        return (
+            '<section class="teacher-comments-section">'
+            '<h2>Teacher Comments</h2>'
+            '<div class="teacher-comments-box">'
+            f'<p>{escape(notes_text.strip())}</p>'
+            '</div>'
+            '</section>'
+        )
 
     def _build_essay_section(self, essay: Dict[str, Any]) -> str:
         """Build the annotated essay section with highlighted passages."""
@@ -450,8 +466,8 @@ class ReportGenerator:
                     html_path.write_text(html_result["html"], encoding="utf-8")
                     report_count += 1
 
-            # Generate gradebook CSV into the same staging directory
-            csv_path = self.generate_gradebook_csv(job_id, staging)
+            # Generate gradebook CSV into the output directory (not staging, which is deleted)
+            csv_path = self.generate_gradebook_csv(job_id, output_base)
 
             # Zip the staging directory
             zip_base = output_base / f"{job_id}_reports_{timestamp}"
@@ -541,6 +557,19 @@ h3 { font-size: 1.1rem; margin: 0.75rem 0 0.5rem; }
     font-style: italic;
     font-size: 0.85em;
 }
+
+/* Teacher Comments Section */
+.teacher-comments-section { margin-top: 1.5rem; }
+.teacher-comments-box {
+    background: #fefce8;
+    border-left: 4px solid #ca8a04;
+    border-radius: 0 6px 6px 0;
+    padding: 14px 18px;
+    font-size: 0.95em;
+    color: #1c1917;
+    line-height: 1.7;
+}
+.teacher-comments-box p { margin: 0; }
 
 /* Essay Section */
 .essay-section { margin-top: 1.5rem; }
