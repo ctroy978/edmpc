@@ -93,6 +93,19 @@ class ReportGenerator:
     def __init__(self, job_manager: RegradeJobManager):
         self.job_manager = job_manager
 
+    def _load_identity_map(self, job_id: str) -> Dict[str, str]:
+        """Return a mapping of anon_id → real student name from job metadata."""
+        raw = self.job_manager.get_metadata(job_id, "identity_map")
+        if not raw or not isinstance(raw, dict):
+            return {}
+        result = {}
+        for anon_id, entry in raw.items():
+            if isinstance(entry, dict):
+                name = entry.get("student_name", "")
+                if name:
+                    result[anon_id] = name
+        return result
+
     def generate_student_report(
         self, job_id: str, essay_id: int
     ) -> Dict[str, Any]:
@@ -107,6 +120,13 @@ class ReportGenerator:
         if essay["job_id"] != job_id:
             return {"status": "error", "message": "Essay does not belong to this job"}
 
+        # Resolve anonymized ID to real student name via the job's identity map
+        anon_id = essay.get("student_identifier", "")
+        name_map = self._load_identity_map(job_id)
+        if anon_id in name_map:
+            essay = dict(essay)
+            essay["student_identifier"] = name_map[anon_id]
+
         html = self._build_html(job, essay)
 
         return {
@@ -117,9 +137,26 @@ class ReportGenerator:
             "html": html,
         }
 
+    def _detoken_essay(self, essay: Dict[str, Any], real_name: str) -> Dict[str, Any]:
+        """Replace [STUDENT_NAME] tokens with the real student name in all text fields."""
+        if not real_name or real_name == "Unknown":
+            return essay
+        placeholder = "[STUDENT_NAME]"
+        essay = dict(essay)  # shallow copy — we'll replace individual keys
+        if essay.get("essay_text"):
+            essay["essay_text"] = essay["essay_text"].replace(placeholder, real_name)
+        if essay.get("evaluation"):
+            eval_json = json.dumps(essay["evaluation"]).replace(placeholder, real_name)
+            essay["evaluation"] = json.loads(eval_json)
+        if essay.get("teacher_comments"):
+            essay["teacher_comments"] = essay["teacher_comments"].replace(placeholder, real_name)
+        return essay
+
     def _build_html(self, job: Dict[str, Any], essay: Dict[str, Any]) -> str:
         """Build the complete standalone HTML document."""
-        student = escape(essay.get("student_identifier") or "Unknown")
+        real_name = essay.get("student_identifier") or "Unknown"
+        essay = self._detoken_essay(essay, real_name)
+        student = escape(real_name)
         job_name = escape(job.get("name") or "")
         assignment = escape(job.get("assignment_title") or "")
 
@@ -377,6 +414,8 @@ class ReportGenerator:
         if not essays:
             return ""
 
+        name_map = self._load_identity_map(job_id)
+
         # Discover all unique criteria names in order of first appearance
         criteria_names: List[str] = []
         for essay in essays:
@@ -398,7 +437,8 @@ class ReportGenerator:
             writer.writeheader()
 
             for essay in essays:
-                student = essay.get("student_identifier", "Unknown")
+                anon_id = essay.get("student_identifier", "Unknown")
+                student = name_map.get(anon_id, anon_id)
                 final_score = essay.get("teacher_grade") or essay.get("grade") or ""
 
                 # Extract per-criterion teacher overrides from teacher_comments JSON
@@ -450,15 +490,18 @@ class ReportGenerator:
 
         report_count = 0
         skipped = []
+        name_map = self._load_identity_map(job_id)
 
         try:
             for essay in essays:
                 if essay.get("status") not in ("GRADED", "REVIEWED", "APPROVED"):
-                    skipped.append(essay.get("student_identifier", f"id:{essay['id']}"))
+                    anon = essay.get("student_identifier", f"id:{essay['id']}")
+                    skipped.append(name_map.get(anon, anon))
                     continue
 
                 essay_id = essay["id"]
-                student = (essay.get("student_identifier") or "unknown").replace(" ", "_")
+                anon_id = essay.get("student_identifier") or "unknown"
+                student = name_map.get(anon_id, anon_id).replace(" ", "_")
                 html_result = self.generate_student_report(job_id, essay_id)
 
                 if html_result.get("status") == "success":
