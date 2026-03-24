@@ -28,12 +28,9 @@ EVALUATION_SCHEMA = {
                     "feedback": {
                         "type": "object",
                         "properties": {
-                            "justification": {"type": "string"},
-                            "examples": {"type": "array", "items": {"type": "string"}},
-                            "advice": {"type": "string"},
-                            "rewritten_example": {"type": "string"},
+                            "explanation": {"type": "string"},
                         },
-                        "required": ["justification", "examples", "advice", "rewritten_example"],
+                        "required": ["explanation"],
                         "additionalProperties": False,
                     },
                 },
@@ -128,7 +125,7 @@ class Grader:
                 prompt = get_evaluation_prompt(essay_text, rubric, context_material, question_text)
 
                 messages = [
-                    {"role": "system", "content": "You are a professional academic evaluator."},
+                    {"role": "system", "content": "You are an experienced, thoughtful writing instructor. Your feedback is detailed, encouraging, balanced, and constructive. You justify scores by referencing rubric thresholds, acknowledge strengths before offering suggestions, and write in a conversational, teacherly tone."},
                     {"role": "user", "content": prompt},
                 ]
 
@@ -571,3 +568,79 @@ Output ONLY valid JSON — no prose, no markdown fences, no extra commentary."""
             "total_essays": len(essays_to_refine),
             "errors": errors if errors else None,
         }
+
+    def refine_teacher_notes(
+        self,
+        job_id: str,
+        essay_id: int,
+        teacher_notes: str = "",
+        model: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Polish teacher's free-form notes into professional prose. Stateless — no DB writes."""
+        if not teacher_notes or not teacher_notes.strip():
+            return {"status": "success", "refined_notes": "", "essay_id": essay_id}
+
+        job = self.job_manager.get_job(job_id)
+        if not job:
+            return {"status": "error", "message": f"Job not found: {job_id}"}
+
+        essay = self.job_manager.get_essay(essay_id)
+        if not essay:
+            return {"status": "error", "message": f"Essay not found: {essay_id}"}
+
+        model = model or os.environ.get("EVALUATION_API_MODEL") or os.environ.get("XAI_API_MODEL") or "grok-beta"
+
+        try:
+            client = get_openai_client(
+                api_key=os.environ.get("EVALUATION_API_KEY") or os.environ.get("XAI_API_KEY"),
+                base_url=os.environ.get("EVALUATION_BASE_URL") or os.environ.get("XAI_BASE_URL"),
+            )
+        except Exception as e:
+            return {"status": "error", "message": f"Failed to get AI client: {e}"}
+
+        parts = []
+        parts.append("You are helping a teacher refine their handwritten notes about a student's essay into polished, professional feedback.")
+        parts.append("")
+
+        if job.get("rubric"):
+            parts.append(f"RUBRIC:\n{job['rubric']}\n")
+
+        eval_data = essay.get("evaluation")
+        if eval_data and isinstance(eval_data, dict):
+            criteria = eval_data.get("criteria", [])
+            if criteria:
+                parts.append("AI EVALUATION (per-criterion scores and justifications):")
+                for c in criteria:
+                    name = c.get("name", "")
+                    score = c.get("score", "")
+                    feedback = c.get("feedback", {})
+                    justification = feedback.get("justification", "") if isinstance(feedback, dict) else str(feedback or "")
+                    parts.append(f"  - {name} ({score}): {justification}")
+                parts.append("")
+
+        parts.append(f"TEACHER'S RAW NOTES:\n{teacher_notes}\n")
+        parts.append("Please rewrite the teacher's notes as professional, encouraging, and clear feedback.")
+        parts.append("- Preserve the teacher's intent, tone, and specific observations exactly")
+        parts.append("- Improve clarity and professionalism")
+        parts.append("- Keep it encouraging and constructive")
+        parts.append("- Return ONLY the refined text as prose (not JSON)")
+        parts.append("- Do not add information not present in the teacher's notes")
+
+        prompt = "\n".join(parts)
+
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You refine teacher feedback to be professional and encouraging."},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=2000,
+                temperature=0.3,
+            )
+            refined = response.choices[0].message.content.strip()
+            print(f"[Regrade] Refined teacher notes for essay {essay_id}", file=sys.stderr)
+            return {"status": "success", "refined_notes": refined, "essay_id": essay_id}
+        except Exception as e:
+            print(f"[Regrade] Error refining notes for essay {essay_id}: {e}", file=sys.stderr)
+            return {"status": "error", "message": str(e)}

@@ -11,7 +11,13 @@ def get_evaluation_prompt(essay_text: str, rubric: str, context_material: str, s
     sections = []
 
     # Instructions section
-    sections.append("You are an expert academic evaluator specializing in providing consistent, structured feedback.")
+    sections.append(
+        "You are an experienced, thoughtful writing instructor. "
+        "Your feedback is detailed, encouraging, balanced, and constructive. "
+        "You justify scores by referencing rubric expectations and thresholds, "
+        "acknowledge strengths before offering suggestions, and write in a conversational, teacherly tone. "
+        "You never revert to terse bullet points or abrupt lists."
+    )
 
     # Essay question section (if provided)
     if system_instructions and system_instructions.strip():
@@ -51,15 +57,16 @@ def get_evaluation_prompt(essay_text: str, rubric: str, context_material: str, s
     sections.append(f"""
 ---
 # OUTPUT INSTRUCTIONS:
-Evaluate the student's essay strictly according to the provided grading rubric. First, identify the distinct criteria from the rubric (e.g., "grammar", "theme").
+Evaluate the student's essay strictly according to the provided grading rubric. First, identify the distinct criteria from the rubric.
 
 For each criterion:
 - Assign a score based on the points specified in the rubric.
-- Provide feedback in this exact format:
-  1. Justification: A 1-2 sentence explanation of WHY this score was assigned (explain what was done well or what was lacking).
-  2. Specific examples: Quote 1-3 direct examples from the essay that justify the score.
-  3. Advice on improvement: Give 1-2 actionable suggestions.
-  4. Rewritten example: Provide a rewritten version of one of the quoted examples.
+- Write a single prose explanation of 100–200 words (4–8 sentences). This explanation must:
+  1. Open by acknowledging specific strengths — cite evidence from the essay naturally within your sentences (do NOT list raw quotes at the end).
+  2. Justify the score by referencing what the rubric expects at this level and the level above (e.g., "A top score typically requires X; your essay does Y well but Z would push it further").
+  3. Offer 1–2 concrete, encouraging suggestions for improvement, phrased positively (e.g., "Adding X would elevate this to the next level").
+  4. Use a conversational, teacherly tone throughout. Avoid pedantic focus on minor issues.
+  5. Write in full paragraphs — no bullet points, no numbered lists, no headings within the explanation.
 
 You must output ONLY a valid JSON object. The JSON must follow this exact structure:
 
@@ -69,10 +76,7 @@ You must output ONLY a valid JSON object. The JSON must follow this exact struct
       "name": "Criterion Name",
       "score": "Numeric score or letter grade",
       "feedback": {{
-        "justification": "Brief explanation of why this score was given",
-        "examples": ["quote 1", "quote 2"],
-        "advice": "Actionable advice string",
-        "rewritten_example": "Improved version string"
+        "explanation": "Full prose paragraph of 100-200 words explaining the score, praising strengths, and offering improvement suggestions."
       }}
     }}
   ],

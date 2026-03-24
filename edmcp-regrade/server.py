@@ -828,6 +828,36 @@ def refine_essay_comments(
 
 
 @mcp.tool()
+def refine_teacher_notes(
+    job_id: str,
+    essay_id: int,
+    teacher_notes: str = "",
+    model: str = "",
+) -> str:
+    """
+    Use AI to polish the teacher's raw notes into professional, encouraging prose.
+    Stateless — does not write to the database. Returns refined text only.
+
+    Args:
+        job_id: The regrade job ID
+        essay_id: The essay ID
+        teacher_notes: The teacher's raw free-form notes to refine
+        model: Optional AI model override
+
+    Returns:
+        JSON with {"status": "success", "refined_notes": "...", "essay_id": <int>}
+    """
+    grader = get_grader()
+    result = grader.refine_teacher_notes(
+        job_id=job_id,
+        essay_id=essay_id,
+        teacher_notes=teacher_notes or "",
+        model=model or None,
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
 def generate_student_report(
     job_id: str,
     essay_id: int,

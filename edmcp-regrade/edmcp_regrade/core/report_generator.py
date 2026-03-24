@@ -242,28 +242,22 @@ class ReportGenerator:
 
             feedback = c.get("feedback", {})
             if isinstance(feedback, dict):
-                ai_justification = str(feedback.get("justification", ""))
-                advice = escape(str(feedback.get("advice", "")))
-                examples = feedback.get("examples", []) or []
+                ai_explanation = str(feedback.get("explanation", "")
+                                     or feedback.get("justification", ""))
             else:
-                ai_justification = str(feedback) if feedback else ""
-                advice = ""
-                examples = []
+                ai_explanation = str(feedback) if feedback else ""
 
+<<<<<<< HEAD
             justification = escape(ai_justification)
+=======
+            # Use blended justification if available, otherwise fall back to AI explanation
+            explanation = escape(blended_justification_map.get(raw_name, ai_explanation))
+>>>>>>> echoRubric
 
-            just_html = (
-                f'<p class="card-justification">\u2022 {justification}</p>'
-                if justification else ""
+            explanation_html = (
+                f'<p class="card-explanation">{explanation}</p>'
+                if explanation else ""
             )
-            advice_html = (
-                f'<p class="card-advice">\u2022 {advice}</p>'
-                if advice else ""
-            )
-            quote_html = ""
-            if examples:
-                first_quote = escape(str(examples[0]))
-                quote_html = f'<blockquote class="card-quote">{first_quote}</blockquote>'
 
             cards.append(
                 '<div class="feedback-card">'
@@ -271,7 +265,7 @@ class ReportGenerator:
                 f'<span class="card-name">{name}</span>'
                 f'<span class="card-score">{score}</span>'
                 '</div>'
-                f'{just_html}{advice_html}{quote_html}'
+                f'{explanation_html}'
                 '</div>'
             )
 
@@ -283,6 +277,7 @@ class ReportGenerator:
         )
 
     def _build_comments_section(self, essay: Dict[str, Any]) -> str:
+<<<<<<< HEAD
         """Build the teacher comments section shown below the rubric cards.
 
         Displays AI-polished teacher notes (refined_teacher_notes) if available,
@@ -307,6 +302,27 @@ class ReportGenerator:
             '<div class="teacher-comments-box">'
             f'<p>{escape(notes_text.strip())}</p>'
             '</div>'
+=======
+        """Render refined teacher notes as a 'Teacher Comments' section if available."""
+        tc_raw = essay.get("teacher_comments") or ""
+        if not tc_raw:
+            return ""
+        try:
+            parsed = json.loads(tc_raw)
+        except (json.JSONDecodeError, TypeError):
+            return ""
+        if not isinstance(parsed, dict):
+            return ""
+        if not parsed.get("report_generated"):
+            return ""
+        refined_notes = parsed.get("refined_teacher_notes", "")
+        if not refined_notes or not str(refined_notes).strip():
+            return ""
+        return (
+            '<section class="comments-section">'
+            '<h2>Teacher Comments</h2>'
+            f'<p>{escape(str(refined_notes))}</p>'
+>>>>>>> echoRubric
             '</section>'
         )
 
@@ -509,12 +525,24 @@ class ReportGenerator:
                     html_path.write_text(html_result["html"], encoding="utf-8")
                     report_count += 1
 
+<<<<<<< HEAD
             # Generate gradebook CSV into the output directory (not staging, which is deleted)
             csv_path = self.generate_gradebook_csv(job_id, output_base)
+=======
+            # Generate gradebook CSV into the staging directory (included in zip)
+            csv_staging_path = self.generate_gradebook_csv(job_id, staging)
+>>>>>>> echoRubric
 
             # Zip the staging directory
             zip_base = output_base / f"{job_id}_reports_{timestamp}"
             zip_path = shutil.make_archive(str(zip_base), "zip", str(staging))
+
+            # Copy CSV to output_base so it survives staging cleanup
+            csv_path = ""
+            if csv_staging_path:
+                dest = output_base / Path(csv_staging_path).name
+                shutil.copy2(csv_staging_path, dest)
+                csv_path = str(dest)
 
             return {
                 "status": "success",
