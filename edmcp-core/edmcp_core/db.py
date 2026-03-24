@@ -154,6 +154,8 @@ class DatabaseManager:
             cursor.execute("ALTER TABLE jobs ADD COLUMN knowledge_base_topic TEXT")
         if "custom_scrub_words" not in jobs_columns:
             cursor.execute("ALTER TABLE jobs ADD COLUMN custom_scrub_words TEXT")
+        if "archived" not in jobs_columns:
+            cursor.execute("ALTER TABLE jobs ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
 
         # Check for columns in scrub_batches
         cursor.execute("PRAGMA table_info(scrub_batches)")
@@ -165,6 +167,35 @@ class DatabaseManager:
             )
 
         self.conn.commit()
+
+    def list_jobs(self, include_archived: bool = False) -> List[Dict[str, Any]]:
+        """Lists essay grading jobs. Excludes archived jobs by default."""
+        cursor = self.conn.cursor()
+        if include_archived:
+            cursor.execute("SELECT * FROM jobs ORDER BY created_at DESC")
+        else:
+            cursor.execute("SELECT * FROM jobs WHERE archived = 0 ORDER BY created_at DESC")
+        return [dict(row) for row in cursor.fetchall()]
+
+    def archive_job(self, job_id: str) -> bool:
+        """Archives an essay grading job (soft delete). Returns True if job was found and archived."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE jobs SET archived = 1 WHERE id = ? AND archived = 0",
+            (job_id,),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def unarchive_job(self, job_id: str) -> bool:
+        """Unarchives (restores) an essay grading job. Returns True if job was found and restored."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE jobs SET archived = 0 WHERE id = ? AND archived = 1",
+            (job_id,),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
 
     def create_job(
         self,
@@ -822,6 +853,16 @@ class DatabaseManager:
         cursor = self.conn.cursor()
         cursor.execute(
             "UPDATE scrub_batches SET archived = 1 WHERE id = ? AND archived = 0",
+            (batch_id,),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def unarchive_scrub_batch(self, batch_id: str) -> bool:
+        """Unarchives (restores) a scrub batch. Returns True if batch was found and restored."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE scrub_batches SET archived = 0 WHERE id = ? AND archived = 1",
             (batch_id,),
         )
         self.conn.commit()

@@ -234,6 +234,29 @@ def archive_job(job_id: str) -> str:
 
 
 @mcp.tool()
+def unarchive_job(job_id: str) -> str:
+    """
+    Unarchive (restore) a regrade job.
+
+    Args:
+        job_id: The regrade job ID to restore
+
+    Returns:
+        JSON with status
+    """
+    manager = get_job_manager()
+    restored = manager.unarchive_job(job_id)
+
+    if not restored:
+        return json.dumps({"status": "error", "message": f"Job not found or not archived: {job_id}"})
+
+    return json.dumps({
+        "status": "success",
+        "message": f"Restored job {job_id}",
+    })
+
+
+@mcp.tool()
 def delete_job(job_id: str) -> str:
     """
     Permanently delete a regrade job and all associated essays and knowledge base data.

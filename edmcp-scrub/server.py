@@ -565,6 +565,35 @@ def archive_batch(batch_id: str) -> dict:
 
 
 @mcp.tool
+def unarchive_batch(batch_id: str) -> dict:
+    """
+    Unarchive (restore) a scrub batch. The batch will appear again in list_batches.
+
+    Args:
+        batch_id: The batch ID to unarchive
+
+    Returns:
+        Status of the operation
+    """
+    try:
+        batch = DB_MANAGER.get_scrub_batch(batch_id)
+        if not batch:
+            return {"status": "error", "message": f"Batch not found: {batch_id}"}
+
+        restored = DB_MANAGER.unarchive_scrub_batch(batch_id)
+        if not restored:
+            return {"status": "error", "message": f"Batch not archived: {batch_id}"}
+
+        return {
+            "status": "success",
+            "batch_id": batch_id,
+            "message": f"Restored batch {batch_id}",
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool
 def get_batch_documents(batch_id: str) -> dict:
     """
     Get all documents in a batch with scrubbed text.

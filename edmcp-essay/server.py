@@ -1522,6 +1522,55 @@ def export_job_archive(job_id: str) -> dict:
 
 
 @mcp.tool
+def list_essay_jobs(include_archived: bool = False) -> dict:
+    """
+    Lists essay grading jobs.
+
+    Args:
+        include_archived: If True, include archived jobs. Default is False.
+
+    Returns:
+        Dictionary with status and jobs list.
+    """
+    jobs = DB_MANAGER.list_jobs(include_archived=include_archived)
+    return {"status": "success", "jobs": jobs}
+
+
+@mcp.tool
+def archive_essay_job(job_id: str) -> dict:
+    """
+    Archives an essay grading job (soft delete).
+
+    Args:
+        job_id: The ID of the job to archive.
+
+    Returns:
+        Dictionary with status and message.
+    """
+    archived = DB_MANAGER.archive_job(job_id)
+    if archived:
+        return {"status": "success", "message": f"Job {job_id} archived."}
+    return {"status": "error", "message": f"Job {job_id} not found or already archived."}
+
+
+@mcp.tool
+def unarchive_essay_job(job_id: str) -> dict:
+    """
+    Unarchives (restores) an essay grading job.
+
+    Args:
+        job_id: The ID of the job to restore.
+
+    Returns:
+        Dictionary with status and message.
+    """
+    restored = DB_MANAGER.unarchive_job(job_id)
+    if restored:
+        return {"status": "success", "message": f"Job {job_id} restored."}
+    return {"status": "error", "message": f"Job {job_id} not found or not archived."}
+
+
+@mcp.tool
 def convert_pdf_to_text(file_path: str, output_path: Optional[str] = None, use_ocr: bool = False) -> dict:
     """
     Converts a PDF to plain text format.

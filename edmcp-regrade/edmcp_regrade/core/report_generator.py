@@ -247,12 +247,7 @@ class ReportGenerator:
             else:
                 ai_explanation = str(feedback) if feedback else ""
 
-<<<<<<< HEAD
-            justification = escape(ai_justification)
-=======
-            # Use blended justification if available, otherwise fall back to AI explanation
-            explanation = escape(blended_justification_map.get(raw_name, ai_explanation))
->>>>>>> echoRubric
+            explanation = escape(ai_explanation)
 
             explanation_html = (
                 f'<p class="card-explanation">{explanation}</p>'
@@ -277,7 +272,6 @@ class ReportGenerator:
         )
 
     def _build_comments_section(self, essay: Dict[str, Any]) -> str:
-<<<<<<< HEAD
         """Build the teacher comments section shown below the rubric cards.
 
         Displays AI-polished teacher notes (refined_teacher_notes) if available,
@@ -302,27 +296,6 @@ class ReportGenerator:
             '<div class="teacher-comments-box">'
             f'<p>{escape(notes_text.strip())}</p>'
             '</div>'
-=======
-        """Render refined teacher notes as a 'Teacher Comments' section if available."""
-        tc_raw = essay.get("teacher_comments") or ""
-        if not tc_raw:
-            return ""
-        try:
-            parsed = json.loads(tc_raw)
-        except (json.JSONDecodeError, TypeError):
-            return ""
-        if not isinstance(parsed, dict):
-            return ""
-        if not parsed.get("report_generated"):
-            return ""
-        refined_notes = parsed.get("refined_teacher_notes", "")
-        if not refined_notes or not str(refined_notes).strip():
-            return ""
-        return (
-            '<section class="comments-section">'
-            '<h2>Teacher Comments</h2>'
-            f'<p>{escape(str(refined_notes))}</p>'
->>>>>>> echoRubric
             '</section>'
         )
 
@@ -525,13 +498,8 @@ class ReportGenerator:
                     html_path.write_text(html_result["html"], encoding="utf-8")
                     report_count += 1
 
-<<<<<<< HEAD
-            # Generate gradebook CSV into the output directory (not staging, which is deleted)
-            csv_path = self.generate_gradebook_csv(job_id, output_base)
-=======
             # Generate gradebook CSV into the staging directory (included in zip)
             csv_staging_path = self.generate_gradebook_csv(job_id, staging)
->>>>>>> echoRubric
 
             # Zip the staging directory
             zip_base = output_base / f"{job_id}_reports_{timestamp}"

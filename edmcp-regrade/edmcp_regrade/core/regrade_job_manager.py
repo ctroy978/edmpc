@@ -309,6 +309,16 @@ class RegradeJobManager:
         self.db.conn.commit()
         return cursor.rowcount > 0
 
+    def unarchive_job(self, job_id: str) -> bool:
+        now = datetime.now().isoformat()
+        cursor = self.db.conn.cursor()
+        cursor.execute(
+            "UPDATE regrade_jobs SET archived = 0, updated_at = ? WHERE id = ? AND archived = 1",
+            (now, job_id),
+        )
+        self.db.conn.commit()
+        return cursor.rowcount > 0
+
     def delete_job(self, job_id: str) -> bool:
         cursor = self.db.conn.cursor()
         cursor.execute("SELECT 1 FROM regrade_jobs WHERE id = ?", (job_id,))
